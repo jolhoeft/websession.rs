@@ -1,0 +1,7 @@
+[package]
+name = "websession"
+version = "0.1.0"
+authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bstern@kukaret.com>"]
+
+[dependencies]
+hyper = "0.9"
