@@ -89,6 +89,7 @@ impl Session {
     // - set account data (real name, email, etc)
 
     pub fn get_user(self) -> String {
+	// If the username is None, then they're not yet logged in.
         panic!{"Not implemented"};
     }
 
