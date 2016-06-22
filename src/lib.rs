@@ -88,8 +88,7 @@ impl Session {
     // - delete account
     // - set account data (real name, email, etc)
 
-    pub fn get_user(self) -> String {
-	// If the username is None, then they're not yet logged in.
+    pub fn get_user(self) -> Option<String> {
         panic!{"Not implemented"};
     }
 
