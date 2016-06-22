@@ -98,17 +98,17 @@ impl Session {
     }
 
     // Session data methods
-    pub fn get_data(self, key: &str) -> String {
+    pub fn get_data(self, key: &str) -> Result<Option<String>, SessionError> {
         panic!("Not implemented!");
     }
 
     // Session data methods
-    pub fn set_data(self, key: &str, value: &str) {
+    pub fn set_data(self, key: &str, value: &str) -> Result<(), SessionError> {
         panic!("Not implemented!");
     }
 
     // Session data methods
-    pub fn get_persistant_data(self, key: &str) -> Result<String, SessionError> {
+    pub fn get_persistant_data(self, key: &str) -> Result<Option<String>, SessionError> {
         panic!("Not implemented!");
     }
 
