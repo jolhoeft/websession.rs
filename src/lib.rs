@@ -32,7 +32,7 @@ impl ConnectionSignature {
 }
 
 pub struct SessionManager {
-    expiration: u64,
+    expiration: u64, // in time (seconds) since last access
     policy: SessionPolicy,
 }
 
@@ -103,6 +103,16 @@ impl Session {
 
     // Session data methods
     pub fn set_data(self, key: &str, value: &str) {
+        panic!("Not implemented!");
+    }
+
+    // Session data methods
+    pub fn get_persistant_data(self, key: &str) -> Result<String, SessionError> {
+        panic!("Not implemented!");
+    }
+
+    // Session data methods
+    pub fn set_persistant_data(self, key: &str, value: &str) -> Result<(), SessionError> {
         panic!("Not implemented!");
     }
 
