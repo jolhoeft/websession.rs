@@ -5,3 +5,6 @@ authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bstern@kukaret.com>"
 
 [dependencies]
 hyper = { version = "0.8", optional = true }
+pwhash = "0.1"
+uuid = { version = "0.2", features = [ "serde", "v4" ] }
+time = "0.1"

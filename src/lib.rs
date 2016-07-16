@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use pwhash::bcrypt;
 use std::net::SocketAddr;
+use std::net::IpAddr;
 
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
@@ -29,11 +30,11 @@ pub enum SessionError {
     IO(String),
 }
 
-// impl From<std::io::Error> for SessionError {
-//     fn from(err: std::io::Error) -> SessionError {
-//         SessionError::IO(err.description().to_string())
-//     }
-// }
+impl From<std::io::Error> for SessionError {
+    fn from(err: std::io::Error) -> SessionError {
+        SessionError::IO(err.description().to_string())
+    }
+}
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub enum SessionPolicy {
@@ -55,10 +56,12 @@ impl Hash for ConnectionSignature {
     fn hash<H: Hasher>(&self, h: &mut H) { self.uuid.hash(h); }
 }
 
-fn is_ip_specified(ip: std::net::IpAddr) -> bool {
+fn is_ip_specified(ip: IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(x) => !x.is_unspecified(),
-        std::net::IpAddr::V6(x) => !x.is_unspecified(),
+//        IpAddr::V4(x) => !x.is_unspecified(),
+//        IpAddr::V6(x) => !x.is_unspecified(),
+	IpAddr::V4(x) => x == std::net::Ipv4Addr::from([0; 4]),
+	IpAddr::V6(x) => x == std::net::Ipv6Addr::from([0; 16]),
     }
 }
 
@@ -79,7 +82,7 @@ impl ConnectionSignature {
 }
 
 #[derive(Debug)]
-pub struct SessionManager<T> {
+struct SessionManager<T> {
     expiration: u64, // in time (seconds) since last access
     policy: SessionPolicy,
     backing_store: T,
@@ -99,11 +102,10 @@ impl <T: AsRef<Path>> SessionManager<T> {
     }
 
     // if valid, sets session cookie in res and returns a Session
-    // struct (or maybe a reference to a Session struct,
-    // i.e. Result<Session, SessionError>)
     pub fn login(&mut self, user: String, password: &str,
-        signature: ConnectionSignature) -> Result<Uuid, SessionError> {
+        signature: ConnectionSignature) -> Result<&Session, SessionError> {
         let mut rv = Err(SessionError::Unauthorized);
+	let mut is_ok = false;
         if (user.trim() == user) && (user.len() > 1) {
             if ((self.policy == SessionPolicy::AddressLock) &&
                 is_ip_specified(signature.sockaddr.ip())) ||
@@ -113,15 +115,13 @@ impl <T: AsRef<Path>> SessionManager<T> {
                 (self.policy == SessionPolicy::Simple) {
                 let session = Session {
                     session_id: signature.uuid,
-                    user: Some(user.to_string()),
+                    user: user.to_string(),
                     sockaddr: signature.sockaddr,
                     last_access: time::now().to_timespec(),
+		    vars: HashMap::new(),
                 };
                 let ref p = self.backing_store;
-                let f = match File::open(p) {
-                    Err(x) => return Err(SessionError::IO(x.description().to_string())),
-                    Ok(f) => f,
-                };
+                let f = try!(File::open(p));
                 let reader = BufReader::new(f);
                 for line in reader.lines() {
                     let s = line.unwrap();
@@ -134,14 +134,17 @@ impl <T: AsRef<Path>> SessionManager<T> {
                             // If this is a valid login, stomp on any outstanding
                             // sessions matching this identifier
                             self.sessions.insert(signature.uuid, session);
-                            rv = Ok(signature.uuid);
+			    is_ok = true;
                         }
                         break;
                     }
                 }
             }
         }
-        return rv;
+	if is_ok {
+	    rv = Ok(self.sessions.get(&signature.uuid).unwrap());
+	}
+        rv
     }
 
     #[cfg(feature = "hyper")]
@@ -150,36 +153,37 @@ impl <T: AsRef<Path>> SessionManager<T> {
         self.login(user, password, conn)
     }
 
-    // if valid, returns the session struct and possibly update cookie in res
-    pub fn get_session(&self, signature: ConnectionSignature) -> Result<Uuid, SessionError> {
-        let mut rv = Err(SessionError::Unauthorized);
-        match self.sessions.contains_key(&signature.uuid) {
-            true => {
-                let mut compare = self.sessions.get_mut(&signature.uuid).unwrap();
-                match self.policy {
-                    SessionPolicy::Simple => rv = Ok(compare),
-                    SessionPolicy::AddressLock => if
-                        compare.sockaddr.ip() == signature.sockaddr.ip() {
-                        compare.update_access();
-                        rv = Ok(compare.session_id);
-                    },
-                    SessionPolicy::AddressPortLock => if
-                        signature.sockaddr == compare.sockaddr {
-                        compare.update_access();
-                        rv = Ok(compare.session_id);
-                    }
-                }
-            },
-            false => { }
-        }
-        rv
+    // if valid, returns the session struct and possibly update cookie in
+    // res; if invalid, returns None
+    pub fn get_session(self: &mut Self, signature: ConnectionSignature) -> Option<&Session> {
+	let mut is_ok = false;
+	match self.sessions.get(&signature.uuid) {
+	    None => {},
+	    Some(sess) => match self.policy {
+		SessionPolicy::Simple => is_ok = true,
+		SessionPolicy::AddressLock =>
+		    if signature.sockaddr.ip() == sess.sockaddr.ip() {
+			is_ok = true;
+		    },
+		SessionPolicy::AddressPortLock =>
+		    if signature.sockaddr == sess.sockaddr {
+			is_ok = true;
+		    },
+	    }
+	}
+	let mut rv = None;
+	if is_ok {
+	    self.sessions.get_mut(&signature.uuid).unwrap().last_access = time::now().to_timespec();
+	    rv = self.sessions.get(&signature.uuid);
+	}
+	rv
     }
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
     pub fn get_session_hyper(&self, req: &Request) -> Result<&Session, SessionError> {
-        let conn = ConnectionSignature::new_hyper(req);
-        self.get_session(conn)
+	let conn = ConnectionSignature::new_hyper(req);
+	self.get_session(conn)
     }
 
     // Todo: Nickel does not give us direct access to a hyper response
@@ -192,8 +196,8 @@ impl <T: AsRef<Path>> SessionManager<T> {
     }
 
     // logout all sessions
-    pub fn logout_all_sessions(&self) {
-        panic!{"Not implemented"};
+    pub fn logout_all_sessions(&mut self) {
+        self.sessions.clear();
     }
 }
 
@@ -201,9 +205,9 @@ impl <T: AsRef<Path>> SessionManager<T> {
 pub struct Session {
     session_id: Uuid,
     sockaddr: SocketAddr,
-    user: Option<String>, // this isn't in the hashmap because all sessions have a user
+    user: String,
     last_access: time::Timespec,
-    // vars: HashMap<String, String>,
+    vars: HashMap<String, String>,
 }
 
 impl Session {
@@ -218,9 +222,8 @@ impl Session {
         self.last_access = time::now().to_timespec();
     }
 
-    pub fn get_user(&self) -> &Option<String> {
-        // panic!{"Not implemented"};
-        &self.user
+    pub fn get_user(&self) -> String {
+	self.user.clone()
     }
 
     pub fn get_session_id(self) -> String {
