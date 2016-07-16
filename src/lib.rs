@@ -222,7 +222,7 @@ impl Session {
         self.last_access = time::now().to_timespec();
     }
 
-    pub fn get_user(&self) -> String {
+    pub fn get_user(&self) -> Option<String> {
 	self.user.clone()
     }
 
