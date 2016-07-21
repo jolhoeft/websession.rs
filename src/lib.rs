@@ -27,6 +27,8 @@ use hyper::server::response::Response;
 #[derive(Debug)]
 pub enum SessionError {
     Unauthorized,
+    BadSignature,
+    Impossible(String),
     IO(String),
 }
 
@@ -54,15 +56,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 impl Hash for ConnectionSignature {
     fn hash<H: Hasher>(&self, h: &mut H) { self.uuid.hash(h); }
-}
-
-fn is_ip_specified(ip: IpAddr) -> bool {
-    match ip {
-//        IpAddr::V4(x) => !x.is_unspecified(),
-//        IpAddr::V6(x) => !x.is_unspecified(),
-	IpAddr::V4(x) => x == std::net::Ipv4Addr::from([0; 4]),
-	IpAddr::V6(x) => x == std::net::Ipv6Addr::from([0; 16]),
-    }
 }
 
 impl ConnectionSignature {
@@ -101,50 +94,60 @@ impl <T: AsRef<Path>> SessionManager<T> {
         }
     }
 
+    fn valid_policy(&self, signature: &ConnectionSignature) -> bool {
+        // everything in the match goes away when
+        // https://github.com/rust-lang/rust/pull/34694 makes it to stable
+        let ipv4unspec = std::net::Ipv4Addr::new(0,0,0,0);
+        match self.policy {
+            SessionPolicy::Simple => true,
+            SessionPolicy::AddressLock => match signature.sockaddr.ip() {
+                IpAddr::V4(ref ip) => ip.ne(&ipv4unspec),
+                IpAddr::V6(ref ip) => !ip.is_unspecified(),
+            },
+            SessionPolicy::AddressPortLock => match signature.sockaddr.ip() {
+                IpAddr::V4(ref ip) => ip.ne(&ipv4unspec) &&
+                    signature.sockaddr.port() > 0,
+                IpAddr::V6(ref ip) => !ip.is_unspecified() &&
+                    signature.sockaddr.port() > 0,
+            },
+        }
+    }
+
     // if valid, sets session cookie in res and returns a Session
-    pub fn login(&mut self, user: String, password: &str,
-        signature: ConnectionSignature) -> Result<&Session, SessionError> {
-        let mut rv = Err(SessionError::Unauthorized);
-	let mut is_ok = false;
+    pub fn login(&mut self, user: &str, password: &str,
+        signature: &ConnectionSignature) -> Result<&Session, SessionError> {
+        if self.valid_policy(signature) {
+            return Err(SessionError::BadSignature)
+        }
         if (user.trim() == user) && (user.len() > 1) {
-            if ((self.policy == SessionPolicy::AddressLock) &&
-                is_ip_specified(signature.sockaddr.ip())) ||
-                ((self.policy == SessionPolicy::AddressPortLock) &&
-                is_ip_specified(signature.sockaddr.ip()) &&
-                (signature.sockaddr.port() > 0)) ||
-                (self.policy == SessionPolicy::Simple) {
-                let session = Session {
-                    session_id: signature.uuid,
-                    user: user.to_string(),
-                    sockaddr: signature.sockaddr,
-                    last_access: time::now().to_timespec(),
-		    vars: HashMap::new(),
-                };
-                let ref p = self.backing_store;
-                let f = try!(File::open(p));
-                let reader = BufReader::new(f);
-                for line in reader.lines() {
-                    let s = line.unwrap();
-                    let v: Vec<&str> = s.split(':').collect();
-                    // Format: username:bcrypt
-                    if v[0] == user {
-                        println!("Found user {}!", user);
-                        let h = bcrypt::hash(password).unwrap();
-                        if v[2] == h {
-                            // If this is a valid login, stomp on any outstanding
-                            // sessions matching this identifier
-                            self.sessions.insert(signature.uuid, session);
-			    is_ok = true;
-                        }
-                        break;
+            let session = Session {
+                session_id: signature.uuid,
+                user: Some(user.to_string()),
+                sockaddr: signature.sockaddr,
+                last_access: time::now().to_timespec(),
+                vars: HashMap::new(),
+            };
+            let ref p = self.backing_store;
+            let f = try!(File::open(p));
+            let reader = BufReader::new(f);
+            for line in reader.lines() {
+                let s = try!(line);
+                // Format: username:bcrypt
+                // XXX should be JSON per spec
+                let v: Vec<&str> = s.split(':').collect();
+                if v[0] == user {
+                    println!("Found user {}!", user);
+                    if bcrypt::verify(password, v[2]) {
+                        // If this is a valid login, stomp on any
+                        // outstanding sessions matching this identifier
+                        self.sessions.insert(signature.uuid, session);
+                        return self.sessions.get(&signature.uuid)
+                            .ok_or(SessionError::Impossible("lost hash key".to_string()));
                     }
                 }
             }
         }
-	if is_ok {
-	    rv = Ok(self.sessions.get(&signature.uuid).unwrap());
-	}
-        rv
+        Err(SessionError::Unauthorized)
     }
 
     #[cfg(feature = "hyper")]
@@ -205,7 +208,7 @@ impl <T: AsRef<Path>> SessionManager<T> {
 pub struct Session {
     session_id: Uuid,
     sockaddr: SocketAddr,
-    user: String,
+    user: Option<String>,
     last_access: time::Timespec,
     vars: HashMap<String, String>,
 }
