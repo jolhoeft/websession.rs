@@ -10,8 +10,7 @@ extern crate hyper;
 
 use time::Duration;
 use std::path::Path;
-use std::io::BufReader;
-use std::io::BufRead;
+use std::io::{BufReader, BufRead};
 use std::fs::File;
 use std::error::Error;
 use std::collections::HashMap;
@@ -19,6 +18,7 @@ use uuid::Uuid;
 use pwhash::bcrypt;
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
+use std::hash::{Hash, Hasher};
 
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
@@ -56,8 +56,6 @@ pub struct ConnectionSignature {
     // signature details here
 }
 
-use std::hash::Hash;
-use std::hash::Hasher;
 impl Hash for ConnectionSignature {
     fn hash<H: Hasher>(&self, h: &mut H) { self.uuid.hash(h); }
 }
@@ -85,7 +83,7 @@ impl ConnectionSignature {
 }
 
 #[derive(Debug)]
-struct SessionManager<T> {
+pub struct SessionManager<T> {
     expiration: Duration,
     policy: SessionPolicy,
     backing_store: T,
@@ -128,7 +126,7 @@ impl <T: AsRef<Path>> SessionManager<T> {
 
 // It's always okay to log out an expired session, so don't both
     // if valid, sets session cookie in res and returns a Session
-    pub fn login(&mut self, user: String, password: &str,
+    pub fn login(self: &mut Self, user: String, password: &str,
         session: &Session) -> Result<&Session, SessionError> {
 	let sig = session.signature;
 
@@ -138,12 +136,11 @@ impl <T: AsRef<Path>> SessionManager<T> {
 	// don't have any requirements.
 
 	let remove = match self.sessions.get_mut(&sig.uuid) {
-	    Some(cs) => if (time::now().to_timespec() - session.last_access) >=
-		self.expiration {
-		true
-	    } else {
-		cs.update_access();
-		false
+	    Some(cs) => if (time::now().to_timespec() - session.last_access) >= self.expiration {
+            true
+        } else {
+            cs.update_access();
+            false
 	    },
 	    None => return Err(SessionError::Lost)
 	};
@@ -153,25 +150,25 @@ impl <T: AsRef<Path>> SessionManager<T> {
 	    return Err(SessionError::Expired);
 	}
 
-    	if (user.trim() == user) && (user.len() > 1) {
-	    let ref p = self.backing_store;
-	    let f = try!(File::open(p));
-	    let reader = BufReader::new(f);
-	    for line in reader.lines() {
-		let s = try!(line);
-		// Format: username:bcrypt
-		let v: Vec<&str> = s.split(':').collect();
-		if v[0] == user {
-		    println!("Found user {}!", user);
-		    if bcrypt::verify(password, v[1]) {
-			let replacement = Session::new(Some(&sig));
-			self.sessions.insert(sig.uuid, replacement);
-			return self.sessions.get(&sig.uuid).ok_or(SessionError::Lost)
-		    } else {
-			return Err(SessionError::Unauthorized);
-		    }
-		} // else continue looking
-	    } // ran out of lines
+    if (user.trim() == user) && (user.len() > 1) {
+        let ref p = self.backing_store;
+        let f = try!(File::open(p));
+        let reader = BufReader::new(f);
+        for line in reader.lines() {
+            let s = try!(line);
+            // Format: username:bcrypt
+            let v: Vec<&str> = s.split(':').collect();
+            if v[0] == user {
+                println!("Found user {}!", user);
+                if bcrypt::verify(password, v[1]) {
+                    let replacement = Session::new(Some(&sig));
+                    self.sessions.insert(sig.uuid, replacement);
+                    return self.sessions.get(&sig.uuid).ok_or(SessionError::Lost)
+                } else {
+                    return Err(SessionError::Unauthorized);
+                }
+            } // else continue looking
+        } // ran out of lines
 	} // bad match or ran out of lines
 	return Err(SessionError::Unauthorized);
     }
@@ -182,11 +179,11 @@ impl <T: AsRef<Path>> SessionManager<T> {
 	self.sessions.remove(&session.signature.uuid);
     }
 
-    #[cfg(feature = "hyper")]
-    pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<&Session, SessionError> {
-        let conn = ConnectionSignature::new_hyper(req);
-        self.login(user, password, conn)
-    }
+    // #[cfg(feature = "hyper")]
+    // pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<&Session, SessionError> {
+    //     let conn = ConnectionSignature::new_hyper(req);
+    //     self.login(user, password, conn)
+    // }
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
