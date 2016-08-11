@@ -136,13 +136,13 @@ impl <T: AsRef<Path>> SessionManager<T> {
 	// don't have any requirements.
 
 	let remove = match self.sessions.get_mut(&sig.uuid) {
-	    Some(cs) => if (time::now().to_timespec() - session.last_access) >= self.expiration {
-            true
-        } else {
-            cs.update_access();
-            false
-	    },
-	    None => return Err(SessionError::Lost)
+            Some(cs) => if (time::now().to_timespec() - session.last_access) >= self.expiration {
+                true
+            } else {
+                cs.update_access();
+                false
+            },
+            None => return Err(SessionError::Lost)
 	};
 
 	if remove {
