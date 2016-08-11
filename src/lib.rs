@@ -187,12 +187,12 @@ impl <T: AsRef<Path>> SessionManager<T> {
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
-    pub fn start(self: &mut Self, signature: ConnectionSignature) -> Result<&Session, SessionError> {
+    pub fn start(self: &mut Self, signature: &ConnectionSignature) -> Result<&Session, SessionError> {
         // We now think the hash has to contain our session.  Let's see if it
         // conforms to our signature.
         let need_replacement = match self.sessions.get_mut(&signature.uuid) {
             None => true,
-            Some(sess) => if sess.match_signature(&signature) {
+            Some(sess) => if sess.match_signature(signature) {
                 if (time::now().to_timespec() - sess.last_access) <= self.expiration {
                     sess.update_access();
                     false
@@ -200,6 +200,7 @@ impl <T: AsRef<Path>> SessionManager<T> {
                     // It's expired, log them out and make a new session
                     // insert() overwrites, so we don't need to
                     // self.sessions.remove(&sess.signature.uuid);
+		    // XXX should this throw a SessionError::Expired
                     true
                 }
             } else {
@@ -209,7 +210,7 @@ impl <T: AsRef<Path>> SessionManager<T> {
         };
         if need_replacement {
             self.sessions.insert(signature.uuid.clone(),
-            Session::new(Some(&signature)));
+            Session::new(Some(signature)));
         }
         self.sessions.get(&signature.uuid).ok_or(SessionError::Lost)
     }
