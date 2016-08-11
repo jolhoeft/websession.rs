@@ -70,8 +70,8 @@ impl ConnectionSignature {
     }
 
     pub fn match_policy(&self, session: &Session, policy: &SessionPolicy) -> bool {
-	// makes sure the penciled-in fields are present and available
-	// right now, all we have is the secret cookie policy, so:
+    // makes sure the penciled-in fields are present and available
+    // right now, all we have is the secret cookie policy, so:
         true
     }
 
@@ -128,14 +128,14 @@ impl <T: AsRef<Path>> SessionManager<T> {
     // if valid, sets session cookie in res and returns a Session
     pub fn login(self: &mut Self, user: String, password: &str,
         session: &Session) -> Result<&Session, SessionError> {
-	let sig = session.signature;
+        let sig = session.signature;
 
-	// This doesn't validate the signature against the session, nor does it
-	// make sure the signature matches our policy requirements.  Right now,
-	// it's pretty much impossible for either of these to fail, because we
-	// don't have any requirements.
+        // This doesn't validate the signature against the session, nor does it
+        // make sure the signature matches our policy requirements.  Right now,
+        // it's pretty much impossible for either of these to fail, because we
+        // don't have any requirements.
 
-	let remove = match self.sessions.get_mut(&sig.uuid) {
+        let remove = match self.sessions.get_mut(&sig.uuid) {
             Some(cs) => if (time::now().to_timespec() - session.last_access) >= self.expiration {
                 true
             } else {
@@ -143,40 +143,40 @@ impl <T: AsRef<Path>> SessionManager<T> {
                 false
             },
             None => return Err(SessionError::Lost)
-	};
+        };
 
-	if remove {
-	    self.sessions.remove(&session.signature.uuid);
-	    return Err(SessionError::Expired);
-	}
+        if remove {
+            self.sessions.remove(&session.signature.uuid);
+            return Err(SessionError::Expired);
+        }
 
-    if (user.trim() == user) && (user.len() > 1) {
-        let ref p = self.backing_store;
-        let f = try!(File::open(p));
-        let reader = BufReader::new(f);
-        for line in reader.lines() {
-            let s = try!(line);
-            // Format: username:bcrypt
-            let v: Vec<&str> = s.split(':').collect();
-            if v[0] == user {
-                println!("Found user {}!", user);
-                if bcrypt::verify(password, v[1]) {
-                    let replacement = Session::new(Some(&sig));
-                    self.sessions.insert(sig.uuid, replacement);
-                    return self.sessions.get(&sig.uuid).ok_or(SessionError::Lost)
-                } else {
-                    return Err(SessionError::Unauthorized);
-                }
-            } // else continue looking
-        } // ran out of lines
-	} // bad match or ran out of lines
-	return Err(SessionError::Unauthorized);
+        if (user.trim() == user) && (user.len() > 1) {
+            let ref p = self.backing_store;
+            let f = try!(File::open(p));
+            let reader = BufReader::new(f);
+            for line in reader.lines() {
+                let s = try!(line);
+                // Format: username:bcrypt
+                let v: Vec<&str> = s.split(':').collect();
+                if v[0] == user {
+                    println!("Found user {}!", user);
+                    if bcrypt::verify(password, v[1]) {
+                        let replacement = Session::new(Some(&sig));
+                        self.sessions.insert(sig.uuid, replacement);
+                        return self.sessions.get(&sig.uuid).ok_or(SessionError::Lost)
+                    } else {
+                        return Err(SessionError::Unauthorized);
+                    }
+                } // else continue looking
+            } // ran out of lines
+        } // bad match or ran out of lines
+        return Err(SessionError::Unauthorized);
     }
 
     pub fn logout(&mut self, session: &Session) {
-	// Let's blow away the session and let them make a new anonymous session
-	// on next login.
-	self.sessions.remove(&session.signature.uuid);
+    // Let's blow away the session and let them make a new anonymous session
+    // on next login.
+        self.sessions.remove(&session.signature.uuid);
     }
 
     // #[cfg(feature = "hyper")]
@@ -188,37 +188,37 @@ impl <T: AsRef<Path>> SessionManager<T> {
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
     pub fn start(self: &mut Self, signature: ConnectionSignature) -> Result<&Session, SessionError> {
-	// We now think the hash has to contain our session.  Let's see if it
-	// conforms to our signature.
-	let need_replacement = match self.sessions.get_mut(&signature.uuid) {
-	    None => true,
-	    Some(sess) => if sess.match_signature(&signature) {
-		if (time::now().to_timespec() - sess.last_access) <= self.expiration {
-	    	    sess.update_access();
-    		    false
-		} else {
-		    // It's expired, log them out and make a new session
-		    // insert() overwrites, so we don't need to
-		    // self.sessions.remove(&sess.signature.uuid);
-		    true
-		}
-	    } else {
-		// They have a valid UUID but their signature doesn't match, so:
-		return Err(SessionError::Unauthorized);
-	    }
-	};
-	if need_replacement {
-	    self.sessions.insert(signature.uuid.clone(),
-		Session::new(Some(&signature)));
-	}
-	self.sessions.get(&signature.uuid).ok_or(SessionError::Lost)
+        // We now think the hash has to contain our session.  Let's see if it
+        // conforms to our signature.
+        let need_replacement = match self.sessions.get_mut(&signature.uuid) {
+            None => true,
+            Some(sess) => if sess.match_signature(&signature) {
+                if (time::now().to_timespec() - sess.last_access) <= self.expiration {
+                    sess.update_access();
+                    false
+                } else {
+                    // It's expired, log them out and make a new session
+                    // insert() overwrites, so we don't need to
+                    // self.sessions.remove(&sess.signature.uuid);
+                    true
+                }
+            } else {
+                // They have a valid UUID but their signature doesn't match, so:
+                return Err(SessionError::Unauthorized);
+            }
+        };
+        if need_replacement {
+            self.sessions.insert(signature.uuid.clone(),
+            Session::new(Some(&signature)));
+        }
+        self.sessions.get(&signature.uuid).ok_or(SessionError::Lost)
     }
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
     pub fn get_session_hyper(&self, req: &Request) -> Result<&Session, SessionError> {
-	let conn = ConnectionSignature::new_hyper(req);
-	self.get_session(conn)
+        let conn = ConnectionSignature::new_hyper(req);
+        self.get_session(conn)
     }
 
     // Todo: Nickel does not give us direct access to a hyper response
@@ -251,28 +251,28 @@ impl Session {
     // - set account data (real name, email, etc)
 
     pub fn new(signature: Option<&ConnectionSignature>) -> Session {
-	Session {
-	    signature: match signature {
-		Some(cs) => cs.clone(),
-		None => ConnectionSignature::new()
-	    },
-	    user: None,
-	    last_access: time::now().to_timespec(),
-	}
+        Session {
+            signature: match signature {
+                Some(cs) => cs.clone(),
+                None => ConnectionSignature::new()
+            },
+            user: None,
+            last_access: time::now().to_timespec(),
+        }
     }
 
     pub fn clone(self) -> Session {
-	Session {
-	    signature: self.signature,
-	    user: self.user,
-	    last_access: time::now().to_timespec(),
-	}
+        Session {
+            signature: self.signature,
+            user: self.user,
+            last_access: time::now().to_timespec(),
+        }
     }
 
     pub fn match_signature(&self, signature: &ConnectionSignature) -> bool {
-	// XXX needs to check policy to only test the relevant parts of the
-	// signature
-	self.signature.uuid == signature.uuid
+    // XXX needs to check policy to only test the relevant parts of the
+    // signature
+        self.signature.uuid == signature.uuid
     }
 
     pub fn update_access(&mut self) {
@@ -280,7 +280,7 @@ impl Session {
     }
 
     pub fn get_user(&self) -> Option<String> {
-	self.user.clone()
+        self.user.clone()
     }
 
     pub fn get_session_id(self) -> String {
