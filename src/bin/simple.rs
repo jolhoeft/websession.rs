@@ -1,7 +1,7 @@
 extern crate websession;
 extern crate time;
 
-use websession::{SessionPolicy, SessionManager, ConnectionSignature, Token};
+use websession::{SessionPolicy, SessionManager, ConnectionSignature};
 use std::path::Path;
 use time::Duration;
 
@@ -15,10 +15,10 @@ fn main() {
 
     let token = match session_manager.start(None, &signature) {
 	Ok(t) => t,
-	Err(err) => panic!(err),
+	Err(err) => panic!(format!("{:?}", err)),
     };
     match session_manager.login("user".to_string(), "password", &token) {
-	Ok(sess) => println!("Logged in!"),
-	Err(err) => panic!(err),
+	Ok(sess) => println!("Logged in with session {:?}", sess),
+	Err(err) => panic!(format!("{:?}", err)),
     };
 }
