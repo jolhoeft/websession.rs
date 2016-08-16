@@ -104,6 +104,12 @@ impl ConnectionSignature {
         ConnectionSignature {
         }
     }
+
+    pub fn new_hyper(req: &Request) -> ConnectionSignature {
+        // stubbed in
+        ConnectionSignature {
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -194,9 +200,10 @@ impl <T: AsRef<Path>> SessionManager<T> {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<&Session, SessionError> {
+    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<Token, SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
-        self.login(user, password, conn) // this is the wrong signature
+        let token = try!{self.start(None, &conn)};
+        self.login(user.to_string(), password, &token) // this is the wrong signature
     }
 
     // if valid, returns the session struct and possibly update cookie in
@@ -226,9 +233,9 @@ impl <T: AsRef<Path>> SessionManager<T> {
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
-    pub fn get_session_hyper(&self, req: &Request) -> Result<&Session, SessionError> {
+    pub fn start_hyper(&mut self, token: Option<&Token>, req: &Request) -> Result<Token, SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
-        self.get_session(conn)
+        self.start(token, &conn)
     }
 
     pub fn get_user(&self, token: &Token) -> Result<Option<String>, SessionError> {
