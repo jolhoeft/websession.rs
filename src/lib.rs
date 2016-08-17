@@ -59,8 +59,7 @@ pub struct SessionPolicy {
 
 impl SessionPolicy {
     pub fn new() -> SessionPolicy {
-        SessionPolicy {
-        }
+        SessionPolicy
     }
 
     fn valid_connection(&self, signature: &ConnectionSignature) -> bool {
@@ -88,46 +87,45 @@ impl Session {
 // XXX let's break this into more fiels so there's less hair everywhere
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ConnectionSignature {
-}
+pub struct ConnectionSignature;
 
 impl ConnectionSignature {
     pub fn new() -> ConnectionSignature {
-        ConnectionSignature {
-        }
+        ConnectionSignature
     }
 
     pub fn new_hyper(req: &Request) -> ConnectionSignature {
         // stubbed in
-        ConnectionSignature {
-        }
+        ConnectionSignature
     }
 }
 
 // The BackingStore doesn't know about userIDs vs usernames; the consumer of
 // websessions is responsible for being able to change usernames w/o affecting
 // userIDs.
+// N.B., implementors of BackingStore provide a new that gets whatever is needed
+// to connect to the store.
 pub trait BackingStore {
-    fn get_pwhash(user: &String) -> Result<String, Err>;
-    fn update_pwhash(user: &String, new_pwhash: &String) -> Result<(), Err>;
-    fn lock(user: &String) -> Result<(), Err>;
-    fn islocked(user: &String) -> Result<bool, Err>;
-    fn unlock(user: &String) -> Result<(), Err>;
-    fn create(username: &String, pwhash: &String) -> Result<(), Err>;
-    fn delete(user: &String) -> Result<(), Err>;
+    fn get_pwhash(&self, user: &String) -> Result<String, Err>;
+    fn update_pwhash(&mut self, user: &String, new_pwhash: &String) -> Result<(), Err>;
+    fn lock(&mut self, user: &String) -> Result<(), Err>;
+    fn islocked(&self, user: &String) -> Result<bool, Err>;
+    fn unlock(&mut self, user: &String) -> Result<(), Err>;
+    fn create(&mut self, user: &String, pwhash: &String) -> Result<(), Err>;
+    fn delete(&mut self, user: &String) -> Result<(), Err>;
 }
 
 #[derive(Debug)]
 pub struct SessionManager {
     expiration: Duration,
     policy: SessionPolicy,
-    backing_store: Box<BackingStore>,
+    backing_store: Box<BackingStore + Send + Sync>,
     cookie_dir: String,
     sessions: HashMap<Token, Session>
 }
 
 impl SessionManager {
-    pub fn new(expiration: Duration, policy: SessionPolicy, backing_store: Box<BackingStore>) -> SessionManager {
+    pub fn new(expiration: Duration, policy: SessionPolicy, backing_store: Box<BackingStore + Send + Sync>) -> SessionManager {
         SessionManager {
             expiration: expiration,
             policy: policy,
