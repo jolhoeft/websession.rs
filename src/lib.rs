@@ -40,19 +40,9 @@ impl From<std::io::Error> for SessionError {
     }
 }
 
-#[derive(Copy, Eq, PartialEq, Debug)]
+#[derive(Copy, Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {
     uuid: Uuid,
-}
-
-impl Clone for Token {
-    fn clone(&self) -> Token { Token { uuid: self.uuid.clone() } }
-
-    fn clone_from(&mut self, source: &Self) { self.uuid = source.uuid.clone(); }
-}
-
-impl Hash for Token {
-    fn hash<H: Hasher>(&self, h: &mut H) { self.uuid.hash(h); }
 }
 
 impl Token {
@@ -95,6 +85,8 @@ impl Session {
     }
 }
 
+// XXX let's break this into more fiels so there's less hair everywhere
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectionSignature {
 }
@@ -112,11 +104,24 @@ impl ConnectionSignature {
     }
 }
 
+// The BackingStore doesn't know about userIDs vs usernames; the consumer of
+// websessions is responsible for being able to change usernames w/o affecting
+// userIDs.
+pub trait BackingStore {
+    fn get_password(user: &String) -> Result<String, Err>;
+    fn update_password(user: &String, newPassword: &String) -> Result<(), Err>;
+    fn lock(user: &String) -> Result<(), Err>;
+    fn islocked(user: &String) -> Result<bool, Err>;
+    fn unlock(user: &String) -> Result<(), Err>;
+    fn create(username: &String, password: &String) -> Result<(), Err>;
+    fn delete(user: &String) -> Result<(), Err>;
+}
+
 #[derive(Debug)]
 pub struct SessionManager<T> {
     expiration: Duration,
     policy: SessionPolicy,
-    backing_store: T,
+    backing_store: Box<BackingStore>,
     cookie_dir: String,
     sessions: HashMap<Token, Session>
 }
@@ -155,9 +160,7 @@ impl <T: AsRef<Path>> SessionManager<T> {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
-    // XXX This can't replace a token, it can only fail to use the provided
-    // XXX token properly.  So, perhaps the Result should be something else.
-    pub fn login(&mut self, user: String, password: &str, token: &Token) -> Result<Token, SessionError> {
+    pub fn login(&mut self, user: String, password: &str, token: &Token) -> Result<(), SessionError> {
         match self.is_expired(token) {
             Ok(true) => {
                 self.logout(token);
