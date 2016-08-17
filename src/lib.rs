@@ -108,17 +108,17 @@ impl ConnectionSignature {
 // websessions is responsible for being able to change usernames w/o affecting
 // userIDs.
 pub trait BackingStore {
-    fn get_password(user: &String) -> Result<String, Err>;
-    fn update_password(user: &String, newPassword: &String) -> Result<(), Err>;
+    fn get_pwhash(user: &String) -> Result<String, Err>;
+    fn update_pwhash(user: &String, new_pwhash: &String) -> Result<(), Err>;
     fn lock(user: &String) -> Result<(), Err>;
     fn islocked(user: &String) -> Result<bool, Err>;
     fn unlock(user: &String) -> Result<(), Err>;
-    fn create(username: &String, password: &String) -> Result<(), Err>;
+    fn create(username: &String, pwhash: &String) -> Result<(), Err>;
     fn delete(user: &String) -> Result<(), Err>;
 }
 
 #[derive(Debug)]
-pub struct SessionManager<T> {
+pub struct SessionManager {
     expiration: Duration,
     policy: SessionPolicy,
     backing_store: Box<BackingStore>,
@@ -126,8 +126,8 @@ pub struct SessionManager<T> {
     sessions: HashMap<Token, Session>
 }
 
-impl <T: AsRef<Path>> SessionManager<T> {
-    pub fn new(expiration: Duration, policy: SessionPolicy, backing_store: T) -> SessionManager<T> {
+impl SessionManager {
+    pub fn new(expiration: Duration, policy: SessionPolicy, backing_store: Box<BackingStore>) -> SessionManager {
         SessionManager {
             expiration: expiration,
             policy: policy,
