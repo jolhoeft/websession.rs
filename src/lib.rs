@@ -5,13 +5,14 @@ extern crate time;
 extern crate uuid;
 extern crate pwhash;
 
+pub mod backingstore;
+pub use self::backingstore::{BackingStore, BackingStoreError};
+
 #[cfg(feature = "hyper")]
 extern crate hyper;
 
 use time::{Timespec, Duration};
 use std::path::Path;
-use std::io::{BufReader, BufRead};
-use std::fs::File;
 use std::error::Error;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -31,13 +32,7 @@ pub enum SessionError {
     BadSignature,
     Expired,
     Lost,
-    IO(String),
-}
-
-impl From<std::io::Error> for SessionError {
-    fn from(err: std::io::Error) -> SessionError {
-        SessionError::IO(err.description().to_string())
-    }
+    BackingStore(BackingStoreError),
 }
 
 #[derive(Copy, Eq, PartialEq, Debug, Clone, Hash)]
@@ -59,7 +54,7 @@ pub struct SessionPolicy {
 
 impl SessionPolicy {
     pub fn new() -> SessionPolicy {
-        SessionPolicy
+        SessionPolicy {}
     }
 
     fn valid_connection(&self, signature: &ConnectionSignature) -> bool {
@@ -94,28 +89,13 @@ impl ConnectionSignature {
         ConnectionSignature
     }
 
+    #[cfg(feature = "hyper")]
     pub fn new_hyper(req: &Request) -> ConnectionSignature {
         // stubbed in
         ConnectionSignature
     }
 }
 
-// The BackingStore doesn't know about userIDs vs usernames; the consumer of
-// websessions is responsible for being able to change usernames w/o affecting
-// userIDs.
-// N.B., implementors of BackingStore provide a new that gets whatever is needed
-// to connect to the store.
-pub trait BackingStore {
-    fn get_pwhash(&self, user: &String) -> Result<String, Err>;
-    fn update_pwhash(&mut self, user: &String, new_pwhash: &String) -> Result<(), Err>;
-    fn lock(&mut self, user: &String) -> Result<(), Err>;
-    fn islocked(&self, user: &String) -> Result<bool, Err>;
-    fn unlock(&mut self, user: &String) -> Result<(), Err>;
-    fn create(&mut self, user: &String, pwhash: &String) -> Result<(), Err>;
-    fn delete(&mut self, user: &String) -> Result<(), Err>;
-}
-
-#[derive(Debug)]
 pub struct SessionManager {
     expiration: Duration,
     policy: SessionPolicy,
@@ -158,42 +138,31 @@ impl SessionManager {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
-    pub fn login(&mut self, user: String, password: &str, token: &Token) -> Result<(), SessionError> {
+    pub fn login(&mut self, user: &String, password: &str, token: &Token) -> Result<(), SessionError> {
         match self.is_expired(token) {
             Ok(true) => {
                 self.logout(token);
                 Err(SessionError::Expired)
             },
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
-                let ref p = self.backing_store;
-                let f = try!(File::open(p));
-                let reader = BufReader::new(f);
-                for line in reader.lines() {
-                    let s = try!(line);
-                    // Format: username:bcrypt
-                    let v: Vec<&str> = s.split(':').collect();
-                    if v[0] == user {
-                        println!("Found user {}!", user);
-                        if bcrypt::verify(password, v[1]) {
-                            match self.sessions.get_mut(token) {
-                                Some(sess) => {
-                                    sess.user = Some(user);
-                                    sess.last_access = time::now().to_timespec();
-                                    return Ok(token.clone())
-                                },
-                                None => return Err(SessionError::Lost),
-                            }
-                        } else {
-                            return Err(SessionError::Unauthorized)
-                        }
-                    } // else continue looking
-                } // ran out of lines
-                return Err(SessionError::Unauthorized)
-            } else { // bad match
-                return Err(SessionError::Unauthorized)
+		let pwhash = try!(self.backing_store.get_pwhash(user).map_err(SessionError::BackingStore));
+		if bcrypt::verify(password, pwhash.as_str()) {
+		    match self.sessions.get_mut(token) {
+	    		Some(sess) => {
+    			    sess.user = Some(user.clone());
+			    sess.last_access = time::now().to_timespec();
+			    Ok(())
+			},
+			None => Err(SessionError::Lost),
+		    }
+		} else { // didn't verify
+		    Err(SessionError::Unauthorized)
+		}
+            } else { // bad username format
+                Err(SessionError::Unauthorized)
             },
             Err(e) => Err(e),
-        }
+        } // is_expired
     }
 
     pub fn logout(&mut self, token: &Token) {
