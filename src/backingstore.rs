@@ -48,9 +48,9 @@ impl FileBackingStore {
     }
 
     fn load_file(&self) -> Result<String, BackingStoreError> {
-	let mut f = try!(File::open(self.filename.clone()).map_err(BackingStoreError::IO));
+	let mut f = try!(File::open(self.filename.clone()));
 	let mut buf = String::new();
-	try!(f.read_to_string(&mut buf).map_err(BackingStoreError::IO));
+	try!(f.read_to_string(&mut buf));
 	Ok(buf)
     }
 
