@@ -8,6 +8,7 @@ use std::convert::From;
 #[derive(Debug)]
 pub enum BackingStoreError {
     NoSuchUser,
+    MissingData,
     IO(io::Error),
 }
 
@@ -48,7 +49,12 @@ impl BackingStore for FileBackingStore {
 		Err(e) => return Err(BackingStoreError::IO(e)),
 		Ok(s) => {
 		    let v: Vec<&str> = s.split(':').collect();
-		    if v[0] == user {
+		    if v.len() < 1 {
+			return Err(BackingStoreError::MissingData);
+		    } else if v[0] == user {
+			if v.len() != 2 {
+			    return Err(BackingStoreError::MissingData);
+			}
 			println!("Found user {}!", user);
 			return Ok(v[1].to_string())
 		    }
@@ -71,7 +77,13 @@ impl BackingStore for FileBackingStore {
     fn islocked(&self, user: &String) -> Result<bool, BackingStoreError> {
 	match self.get_pwhash(user) {
 	    Err(e) => Err(e),
-	    Ok(hash) => Ok(hash.as_bytes()[0] == b'!'),
+	    Ok(hash) => {
+		let mut chars = hash.chars();
+		match chars.next() {
+		    Some(c) => Ok(c == '!'),
+		    None => Err(BackingStoreError::MissingData),
+		}
+	    }
 	}
     }
 
