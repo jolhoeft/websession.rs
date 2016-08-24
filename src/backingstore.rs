@@ -9,6 +9,7 @@ use std::convert::From;
 pub enum BackingStoreError {
     NoSuchUser,
     MissingData,
+    Locked,
     IO(io::Error),
 }
 
@@ -24,7 +25,7 @@ impl From<io::Error> for BackingStoreError {
 // N.B., implementors of BackingStore provide a new that gets whatever is needed
 // to connect to the store.
 pub trait BackingStore {
-    fn get_pwhash(&self, user: &String) -> Result<String, BackingStoreError>;
+    fn get_pwhash(&self, user: &String, fail_if_locked: bool) -> Result<String, BackingStoreError>;
     fn update_pwhash(&mut self, user: &String, new_pwhash: &String) -> Result<(), BackingStoreError>;
     fn lock(&mut self, user: &String) -> Result<(), BackingStoreError>;
     fn islocked(&self, user: &String) -> Result<bool, BackingStoreError>;
@@ -77,11 +78,17 @@ impl FileBackingStore {
 }
 
 impl BackingStore for FileBackingStore {
-    fn get_pwhash(&self, user: &String) -> Result<String, BackingStoreError> {
+    fn get_pwhash(&self, user: &String, fail_if_locked: bool) -> Result<String, BackingStoreError> {
 	let pwfile = try!(self.load_file());
 	for line in pwfile.lines() {
 	    match try!(self.line_has_user(line, user)) {
-		Some(hash) => return Ok(hash),
+		Some(hash) => return {
+		    if !(fail_if_locked && try!(self.hash_is_locked(&hash))) {
+			Ok(hash)
+		    } else {
+			Err(BackingStoreError::Locked)
+		    }
+		},
 		None => { }, // keep looking
 	    }
 	}
@@ -111,7 +118,7 @@ impl BackingStore for FileBackingStore {
     }
 
     fn lock(&mut self, user: &String) -> Result<(), BackingStoreError> {
-	let mut hash = try!(self.get_pwhash(user));
+	let mut hash = try!(self.get_pwhash(user, false));
 	if !try!(self.hash_is_locked(&hash)) {
 	    hash.insert(0, '!');
 	    self.update_pwhash(user, &hash);
@@ -121,7 +128,7 @@ impl BackingStore for FileBackingStore {
     }
 
     fn islocked(&self, user: &String) -> Result<bool, BackingStoreError> {
-	let hash = try!(self.get_pwhash(user));
+	let hash = try!(self.get_pwhash(user, false));
 	self.hash_is_locked(&hash)
     }
 
