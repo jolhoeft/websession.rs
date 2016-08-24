@@ -1,7 +1,7 @@
 use std::io;
 use std::error::Error;
 use std::fs;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, BufWriter};
 use std::convert::From;
 
@@ -10,6 +10,7 @@ pub enum BackingStoreError {
     NoSuchUser,
     MissingData,
     Locked,
+    UserExists,
     IO(io::Error),
 }
 
@@ -112,7 +113,7 @@ impl BackingStore for FileBackingStore {
 		None => try!(f.write_all(line.as_bytes()).map_err(BackingStoreError::IO)),
 	    }
 	    // Intentionally ignoring \r\n under Windows; we're the consumer
-	    try!(f.write_all(b"\n").map_err(BackingStoreError::IO));
+	    try!(f.write_all(b"\n"));
 	}
 	Ok(())
     }
@@ -142,9 +143,19 @@ impl BackingStore for FileBackingStore {
 	Ok(())
     }
 
-    // This is problematic because I can't find a stable mkstemp in Rust.
     fn create(&mut self, user: &String, pwhash: &String) -> Result<(), BackingStoreError> {
-	panic!("Not implemented");
+	match self.get_pwhash(user, false) {
+	    Ok(_) => Err(BackingStoreError::UserExists),
+	    Err(BackingStoreError::NoSuchUser) => {
+		let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(self.filename.clone())));
+		try!(f.write_all(user.as_bytes()));
+		try!(f.write_all(b":"));
+		try!(f.write_all(pwhash.as_bytes()));
+		try!(f.write_all(b"\n"));
+		Ok(())
+	    },
+	    Err(e) => Err(e),
+	}
     }
 
     // This is problematic because I can't find a stable mkstemp in Rust.
