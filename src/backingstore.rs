@@ -132,9 +132,14 @@ impl BackingStore for FileBackingStore {
 	self.hash_is_locked(&hash)
     }
 
-    // This is problematic because I can't find a stable mkstemp in Rust.
     fn unlock(&mut self, user: &String) -> Result<(), BackingStoreError> {
-	panic!("Not implemented");
+	let mut hash = try!(self.get_pwhash(user, false));
+	if try!(self.hash_is_locked(&hash)) {
+	    hash.remove(0);
+	    self.update_pwhash(user, &hash);
+	}
+	// not an error to unlock an unlocked user
+	Ok(())
     }
 
     // This is problematic because I can't find a stable mkstemp in Rust.
