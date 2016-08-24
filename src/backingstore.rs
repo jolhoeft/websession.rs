@@ -66,6 +66,14 @@ impl FileBackingStore {
 	    Ok(None)
 	}
     }
+
+    fn hash_is_locked(&self, hash: &String) -> Result<bool, BackingStoreError> {
+	let mut chars = hash.chars();
+	match chars.next() {
+	    Some(c) => Ok(c == '!'),
+	    None => Err(BackingStoreError::MissingData),
+	}
+    }
 }
 
 impl BackingStore for FileBackingStore {
@@ -86,13 +94,13 @@ impl BackingStore for FileBackingStore {
 	let mut newfn = self.filename.clone();
 	newfn.push_str(".old");
 	try!(fs::rename(self.filename.clone(), newfn));
-	let mut f = BufWriter::new(try!(File::create(self.filename.clone()).map_err(BackingStoreError::IO)));
+	let mut f = BufWriter::new(try!(File::create(self.filename.clone())));
 	for line in pwfile.lines() {
 	    match try!(self.line_has_user(line, user)) {
 		Some(hash) => {
-		    try!(f.write_all(user.as_bytes()).map_err(BackingStoreError::IO));
-		    try!(f.write_all(b":").map_err(BackingStoreError::IO));
-		    try!(f.write_all(new_pwhash.as_bytes()).map_err(BackingStoreError::IO));
+		    try!(f.write_all(user.as_bytes()));
+		    try!(f.write_all(b":"));
+		    try!(f.write_all(new_pwhash.as_bytes()));
 		},
 		None => try!(f.write_all(line.as_bytes()).map_err(BackingStoreError::IO)),
 	    }
@@ -102,22 +110,19 @@ impl BackingStore for FileBackingStore {
 	Ok(())
     }
 
-    // This is problematic because I can't find a stable mkstemp in Rust.
     fn lock(&mut self, user: &String) -> Result<(), BackingStoreError> {
-	panic!("Not implemented");
+	let mut hash = try!(self.get_pwhash(user));
+	if !try!(self.hash_is_locked(&hash)) {
+	    hash.insert(0, '!');
+	    self.update_pwhash(user, &hash);
+	}
+	// not an error to lock a locked user
+	Ok(())
     }
 
     fn islocked(&self, user: &String) -> Result<bool, BackingStoreError> {
-	match self.get_pwhash(user) {
-	    Err(e) => Err(e),
-	    Ok(hash) => {
-		let mut chars = hash.chars();
-		match chars.next() {
-		    Some(c) => Ok(c == '!'),
-		    None => Err(BackingStoreError::MissingData),
-		}
-	    }
-	}
+	let hash = try!(self.get_pwhash(user));
+	self.hash_is_locked(&hash)
     }
 
     // This is problematic because I can't find a stable mkstemp in Rust.
