@@ -81,10 +81,10 @@ impl FileBackingStore {
     fn update_user_hash(&self, user: &String, new_pwhash: Option<&String>) -> Result<(), BackingStoreError> {
 	let pwfile = try!(self.load_file());
 
-	let mut newfn = self.filename.clone();
-	newfn.push_str(".old");
-	try!(fs::rename(self.filename.clone(), newfn));
-	let mut f = BufWriter::new(try!(File::create(self.filename.clone())));
+	let oldfn = self.filename.clone();
+	let newfn = oldfn.clone() + ".old";
+	try!(fs::rename(oldfn.clone(), newfn));
+	let mut f = BufWriter::new(try!(File::create(oldfn)));
 	for line in pwfile.lines() {
 	    match try!(self.line_has_user(line, user)) {
 		Some(hash) => match new_pwhash {
