@@ -76,6 +76,34 @@ impl FileBackingStore {
 	    None => Err(BackingStoreError::MissingData),
 	}
     }
+
+    // We're intentionally ignoring \r\n under Windows; we're the consumer too.
+    fn update_user_hash(&self, user: &String, new_pwhash: Option<&String>) -> Result<(), BackingStoreError> {
+	let pwfile = try!(self.load_file());
+
+	let mut newfn = self.filename.clone();
+	newfn.push_str(".old");
+	try!(fs::rename(self.filename.clone(), newfn));
+	let mut f = BufWriter::new(try!(File::create(self.filename.clone())));
+	for line in pwfile.lines() {
+	    match try!(self.line_has_user(line, user)) {
+		Some(hash) => match new_pwhash {
+		    Some(newhash) => {
+			try!(f.write_all(user.as_bytes()));
+			try!(f.write_all(b":"));
+			try!(f.write_all(newhash.as_bytes()));
+			try!(f.write_all(b"\n"));
+		    },
+		    None => { }, // delete this user
+		},
+		None => {
+		    try!(f.write_all(line.as_bytes()));
+		    try!(f.write_all(b"\n"));
+		},
+	    }
+	}
+	Ok(())
+    }
 }
 
 impl BackingStore for FileBackingStore {
@@ -97,25 +125,7 @@ impl BackingStore for FileBackingStore {
     }
 
     fn update_pwhash(&mut self, user: &String, new_pwhash: &String) -> Result<(), BackingStoreError> {
-	let pwfile = try!(self.load_file());
-
-	let mut newfn = self.filename.clone();
-	newfn.push_str(".old");
-	try!(fs::rename(self.filename.clone(), newfn));
-	let mut f = BufWriter::new(try!(File::create(self.filename.clone())));
-	for line in pwfile.lines() {
-	    match try!(self.line_has_user(line, user)) {
-		Some(hash) => {
-		    try!(f.write_all(user.as_bytes()));
-		    try!(f.write_all(b":"));
-		    try!(f.write_all(new_pwhash.as_bytes()));
-		},
-		None => try!(f.write_all(line.as_bytes()).map_err(BackingStoreError::IO)),
-	    }
-	    // Intentionally ignoring \r\n under Windows; we're the consumer
-	    try!(f.write_all(b"\n"));
-	}
-	Ok(())
+	self.update_user_hash(user, Some(new_pwhash))
     }
 
     fn lock(&mut self, user: &String) -> Result<(), BackingStoreError> {
@@ -158,8 +168,7 @@ impl BackingStore for FileBackingStore {
 	}
     }
 
-    // This is problematic because I can't find a stable mkstemp in Rust.
     fn delete(&mut self, user: &String) -> Result<(), BackingStoreError> {
-	panic!("Not implemented");
+	self.update_user_hash(user, None)
     }
 }
