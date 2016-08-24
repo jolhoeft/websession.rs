@@ -35,6 +35,14 @@ pub enum SessionError {
     BackingStore(BackingStoreError),
 }
 
+impl From<BackingStoreError> for SessionError {
+    // Arguably, we should parse these and convert non-data-integrity errors to
+    // Unauthorized errors.
+    fn from(err: BackingStoreError) -> SessionError {
+	SessionError::BackingStore(err)
+    }
+}
+
 #[derive(Copy, Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {
     uuid: Uuid,
@@ -145,7 +153,7 @@ impl SessionManager {
                 Err(SessionError::Expired)
             },
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
-		let pwhash = try!(self.backing_store.get_pwhash(user).map_err(SessionError::BackingStore));
+		let pwhash = try!(self.backing_store.get_pwhash(user, true));
 		if bcrypt::verify(password, pwhash.as_str()) {
 		    match self.sessions.get_mut(token) {
 	    		Some(sess) => {
