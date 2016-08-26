@@ -39,7 +39,7 @@ impl From<BackingStoreError> for SessionError {
     // Arguably, we should parse these and convert non-data-integrity errors to
     // Unauthorized errors.
     fn from(err: BackingStoreError) -> SessionError {
-	SessionError::BackingStore(err)
+        SessionError::BackingStore(err)
     }
 }
 
@@ -146,26 +146,26 @@ impl SessionManager {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
-    pub fn login(&mut self, user: &String, password: &str, token: &Token) -> Result<(), SessionError> {
+    pub fn login(&mut self, user: &str, password: &str, token: &Token) -> Result<(), SessionError> {
         match self.is_expired(token) {
             Ok(true) => {
                 self.logout(token);
                 Err(SessionError::Expired)
             },
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
-		let pwhash = try!(self.backing_store.get_pwhash(user, true));
-		if bcrypt::verify(password, pwhash.as_str()) {
-		    match self.sessions.get_mut(token) {
-	    		Some(sess) => {
-    			    sess.user = Some(user.clone());
-			    sess.last_access = time::now().to_timespec();
-			    Ok(())
-			},
-			None => Err(SessionError::Lost),
-		    }
-		} else { // didn't verify
-		    Err(SessionError::Unauthorized)
-		}
+                let pwhash = try!(self.backing_store.get_pwhash(user, true));
+                if bcrypt::verify(password, pwhash.as_str()) {
+                    match self.sessions.get_mut(token) {
+                        Some(sess) => {
+                            sess.user = Some(user.to_string());
+                            sess.last_access = time::now().to_timespec();
+                            Ok(())
+                        },
+                        None => Err(SessionError::Lost),
+                    }
+                } else { // didn't verify
+                    Err(SessionError::Unauthorized)
+                }
             } else { // bad username format
                 Err(SessionError::Unauthorized)
             },
@@ -178,25 +178,25 @@ impl SessionManager {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<Token, SessionError> {
+    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<(), SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
         let token = try!{self.start(None, &conn)};
-        self.login(user.to_string(), password, &token) // this is the wrong signature
+        self.login(user, password, &token) // this is the wrong signature
     }
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
     pub fn start(self: &mut Self, token: Option<&Token>, signature: &ConnectionSignature) -> Result<Token, SessionError> {
-	let cur_token = token.map_or(Token::new(), |x| *x);
+        let cur_token = token.map_or(Token::new(), |x| *x);
         let need_insert = match self.is_expired(&cur_token) {
-	    Ok(true) => {
-    		self.logout(&cur_token);
-		true
-	    },
-	    Ok(false) => false,
-	    Err(SessionError::Lost) => true, // this just means it's new
-	    Err(e) => return Err(e),
-	};
+            Ok(true) => {
+                self.logout(&cur_token);
+                true
+            },
+            Ok(false) => false,
+            Err(SessionError::Lost) => true, // this just means it's new
+            Err(e) => return Err(e),
+        };
         
         if need_insert {
             self.sessions.insert(cur_token.clone(), Session::new(signature));
