@@ -1,5 +1,4 @@
 use std::io;
-use std::error::Error;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, BufWriter};
@@ -87,7 +86,7 @@ impl FileBackingStore {
 	let mut f = BufWriter::new(try!(File::create(oldfn)));
 	for line in pwfile.lines() {
 	    match try!(self.line_has_user(line, user)) {
-		Some(hash) => match new_pwhash {
+		Some(_) => match new_pwhash {
 		    Some(newhash) => {
 			try!(f.write_all(user.as_bytes()));
 			try!(f.write_all(b":"));
@@ -132,7 +131,7 @@ impl BackingStore for FileBackingStore {
 	let mut hash = try!(self.get_pwhash(user, false));
 	if !try!(self.hash_is_locked(&hash)) {
 	    hash.insert(0, '!');
-	    self.update_pwhash(user, &hash);
+	    return self.update_pwhash(user, &hash);
 	}
 	// not an error to lock a locked user
 	Ok(())
@@ -147,7 +146,7 @@ impl BackingStore for FileBackingStore {
 	let mut hash = try!(self.get_pwhash(user, false));
 	if try!(self.hash_is_locked(&hash)) {
 	    hash.remove(0);
-	    self.update_pwhash(user, &hash);
+	    return self.update_pwhash(user, &hash);
 	}
 	// not an error to unlock an unlocked user
 	Ok(())

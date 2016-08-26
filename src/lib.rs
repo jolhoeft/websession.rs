@@ -8,18 +8,23 @@ extern crate pwhash;
 pub mod backingstore;
 pub use self::backingstore::{BackingStore, BackingStoreError};
 
+pub mod connectionsignature;
+pub use self::connectionsignature::ConnectionSignature;
+
+mod token;
+use self::token::Token;
+
+pub mod sessionpolicy;
+pub use self::sessionpolicy::SessionPolicy;
+
 #[cfg(feature = "hyper")]
 extern crate hyper;
 
 use time::{Timespec, Duration};
-use std::path::Path;
-use std::error::Error;
 use std::collections::HashMap;
-use uuid::Uuid;
 use pwhash::bcrypt;
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
-use std::hash::{Hash, Hasher};
 
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
@@ -43,33 +48,6 @@ impl From<BackingStoreError> for SessionError {
     }
 }
 
-#[derive(Copy, Eq, PartialEq, Debug, Clone, Hash)]
-pub struct Token {
-    uuid: Uuid,
-}
-
-impl Token {
-    fn new() -> Token {
-        Token {
-            uuid: Uuid::new_v4()
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct SessionPolicy {
-}
-
-impl SessionPolicy {
-    pub fn new() -> SessionPolicy {
-        SessionPolicy {}
-    }
-
-    fn valid_connection(&self, signature: &ConnectionSignature) -> bool {
-        true
-    }
-}
-
 #[derive(Debug)]
 struct Session {
     user: Option<String>,
@@ -87,50 +65,34 @@ impl Session {
     }
 }
 
-// XXX let's break this into more fiels so there's less hair everywhere
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConnectionSignature;
-
-impl ConnectionSignature {
-    pub fn new() -> ConnectionSignature {
-        ConnectionSignature
-    }
-
-    #[cfg(feature = "hyper")]
-    pub fn new_hyper(req: &Request) -> ConnectionSignature {
-        // stubbed in
-        ConnectionSignature
-    }
-}
-
 pub struct SessionManager {
     expiration: Duration,
-    policy: SessionPolicy,
+    // policy: SessionPolicy,
     backing_store: Box<BackingStore + Send + Sync>,
-    cookie_dir: String,
+    // cookie_dir: String,
     sessions: HashMap<Token, Session>
 }
 
 impl SessionManager {
-    pub fn new(expiration: Duration, policy: SessionPolicy, backing_store: Box<BackingStore + Send + Sync>) -> SessionManager {
+    pub fn new(expiration: Duration, _: SessionPolicy, backing_store: Box<BackingStore + Send + Sync>) -> SessionManager {
         SessionManager {
             expiration: expiration,
-            policy: policy,
+            // policy: policy,
             backing_store: backing_store,
-            cookie_dir: "cookies".to_string(),
+            // cookie_dir: "cookies".to_string(),
             sessions: HashMap::new()
         }
     }
 
     // This makes sure that the connectionsignature matches our policy and also
-    // matches the session it is being applied to
-    fn valid_connection(&self, signature: &ConnectionSignature, token: &Token) -> bool {
-        self.policy.valid_connection(signature) && match self.sessions.get(token) {
-            Some(sess) => sess.signature == *signature,
-            None => false,
-        }
-    }
+    // matches the session it is being applied to.
+    // It's a good idea, but I'm not sure where to glue it in right now.
+    // fn valid_connection(&self, signature: &ConnectionSignature, token: &Token) -> bool {
+    //     self.policy.suitable_connection(signature) && match self.sessions.get(token) {
+    //         Some(sess) => sess.signature == *signature,
+    //         None => false,
+    //     }
+    // }
 
     fn is_expired(&self, token: &Token) -> Result<bool, SessionError> {
         match self.sessions.get(token) {
@@ -222,8 +184,6 @@ impl SessionManager {
             None => Err(SessionError::Lost),
         }
     }
-
-
 
     // Todo: Nickel does not give us direct access to a hyper response
     // object. We need to figure out a clean way of setting the
