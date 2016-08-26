@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use pwhash::bcrypt;
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
+use std::sync::Mutex;
 
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
@@ -38,6 +39,7 @@ pub enum SessionError {
     Expired,
     Lost,
     BackingStore(BackingStoreError),
+    Mutex
 }
 
 impl From<BackingStoreError> for SessionError {
@@ -70,7 +72,7 @@ pub struct SessionManager {
     // policy: SessionPolicy,
     backing_store: Box<BackingStore + Send + Sync>,
     // cookie_dir: String,
-    sessions: HashMap<Token, Session>
+    sessions: Mutex<HashMap<Token, Session>>,
 }
 
 impl SessionManager {
@@ -80,7 +82,7 @@ impl SessionManager {
             // policy: policy,
             backing_store: backing_store,
             // cookie_dir: "cookies".to_string(),
-            sessions: HashMap::new()
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -95,13 +97,16 @@ impl SessionManager {
     // }
 
     fn is_expired(&self, token: &Token) -> Result<bool, SessionError> {
-        match self.sessions.get(token) {
-            Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
-                Ok(true)
-            } else {
-                Ok(false)
+        match self.sessions.lock() {
+            Ok(hashmap) => match hashmap.get(token) {
+                Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                },
+                None => Err(SessionError::Lost),
             },
-            None => return Err(SessionError::Lost),
+            Err(_) => Err(SessionError::Mutex),
         }
     }
 
@@ -117,13 +122,16 @@ impl SessionManager {
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
                 let pwhash = try!(self.backing_store.get_pwhash(user, true));
                 if bcrypt::verify(password, pwhash.as_str()) {
-                    match self.sessions.get_mut(token) {
-                        Some(sess) => {
-                            sess.user = Some(user.to_string());
-                            sess.last_access = time::now().to_timespec();
-                            Ok(())
+                    match self.sessions.lock() {
+                        Ok(mut hashmap) => match hashmap.get_mut(token) {
+                            Some(sess) => {
+                                sess.user = Some(user.to_string());
+                                sess.last_access = time::now().to_timespec();
+                                Ok(())
+                            },
+                            None => Err(SessionError::Lost),
                         },
-                        None => Err(SessionError::Lost),
+                        Err(_) => Err(SessionError::Mutex),
                     }
                 } else { // didn't verify
                     Err(SessionError::Unauthorized)
@@ -135,8 +143,12 @@ impl SessionManager {
         } // is_expired
     }
 
+    // This has the same caveats as logout_all_sessions; should it be a Result?
     pub fn logout(&mut self, token: &Token) {
-        self.sessions.remove(token);
+        match self.sessions.lock() {
+            Ok(mut hashmap) => hashmap.remove(token),
+            Err(poisoned) => poisoned.into_inner().remove(token),
+        };
     }
 
     #[cfg(feature = "hyper")]
@@ -159,14 +171,19 @@ impl SessionManager {
             Err(SessionError::Lost) => true, // this just means it's new
             Err(e) => return Err(e),
         };
-        
-        if need_insert {
-            self.sessions.insert(cur_token.clone(), Session::new(signature));
-        } else {
-            match self.sessions.get_mut(&cur_token) {
-                Some(sess) => sess.last_access = time::now().to_timespec(),
-                None => return Err(SessionError::Lost),
-            }
+
+        match self.sessions.lock() {
+            Ok(mut hashmap) => {
+                if need_insert {
+                    hashmap.insert(cur_token.clone(), Session::new(signature));
+                } else {
+                    match hashmap.get_mut(&cur_token) {
+                        Some(sess) => sess.last_access = time::now().to_timespec(),
+                        None => return Err(SessionError::Lost),
+                    }
+                }
+            },
+            Err(_) => return Err(SessionError::Mutex),
         }
         Ok(cur_token.clone())
     }
@@ -179,9 +196,12 @@ impl SessionManager {
     }
 
     pub fn get_user(&self, token: &Token) -> Result<Option<String>, SessionError> {
-        match self.sessions.get(token) {
-            Some(sess) => Ok(sess.user.clone()),
-            None => Err(SessionError::Lost),
+        match self.sessions.lock() {
+            Ok(hashmap) => match hashmap.get(token) {
+                Some(sess) => Ok(sess.user.clone()),
+                None => Err(SessionError::Lost),
+            },
+            Err(_) => Err(SessionError::Mutex),
         }
     }
 
@@ -189,9 +209,13 @@ impl SessionManager {
     // object. We need to figure out a clean way of setting the
     // cookie, ideally w/o requiring Nickel to be compiled in.
 
-    // logout all sessions
+    // Should this fail if the mutex blew up?
+    // It's not supposed to break anyway.
     pub fn logout_all_sessions(&mut self) {
-        self.sessions.clear();
+        match self.sessions.lock() {
+            Ok(mut hashmap) => hashmap.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
     }
 }
 
