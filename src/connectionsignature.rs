@@ -1,6 +1,9 @@
 #[cfg(feature = "hyper")]
 extern crate hyper;
 
+#[cfg(feature = "hyper")]
+use hyper::server::request::Request;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectionSignature;
 
@@ -10,7 +13,7 @@ impl ConnectionSignature {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn new_hyper(req: &Request) -> ConnectionSignature {
+    pub fn new_hyper(_: &Request) -> ConnectionSignature {
         // stubbed in
         ConnectionSignature
     }
