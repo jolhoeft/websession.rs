@@ -29,8 +29,6 @@ use std::sync::Mutex;
 
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
-#[cfg(feature = "hyper")]
-use hyper::server::response::Response;
 
 #[derive(Debug)]
 pub enum SessionError {
@@ -113,7 +111,7 @@ impl SessionManager {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
-    pub fn login(&mut self, user: &str, password: &str, token: &Token) -> Result<(), SessionError> {
+    pub fn login(&self, user: &str, password: &str, token: &Token) -> Result<(), SessionError> {
         match self.is_expired(token) {
             Ok(true) => {
                 self.logout(token);
@@ -144,7 +142,7 @@ impl SessionManager {
     }
 
     // This has the same caveats as logout_all_sessions; should it be a Result?
-    pub fn logout(&mut self, token: &Token) {
+    pub fn logout(&self, token: &Token) {
         match self.sessions.lock() {
             Ok(mut hashmap) => hashmap.remove(token),
             Err(poisoned) => poisoned.into_inner().remove(token),
@@ -152,7 +150,7 @@ impl SessionManager {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<(), SessionError> {
+    pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<(), SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
         let token = try!{self.start(None, &conn)};
         self.login(user, password, &token) // this is the wrong signature
@@ -160,7 +158,7 @@ impl SessionManager {
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
-    pub fn start(self: &mut Self, token: Option<&Token>, signature: &ConnectionSignature) -> Result<Token, SessionError> {
+    pub fn start(&self, token: Option<&Token>, signature: &ConnectionSignature) -> Result<Token, SessionError> {
         let cur_token = token.map_or(Token::new(), |x| *x);
         let need_insert = match self.is_expired(&cur_token) {
             Ok(true) => {
@@ -190,7 +188,7 @@ impl SessionManager {
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
-    pub fn start_hyper(&mut self, token: Option<&Token>, req: &Request) -> Result<Token, SessionError> {
+    pub fn start_hyper(&self, token: Option<&Token>, req: &Request) -> Result<Token, SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
         self.start(token, &conn)
     }
@@ -211,7 +209,7 @@ impl SessionManager {
 
     // Should this fail if the mutex blew up?
     // It's not supposed to break anyway.
-    pub fn logout_all_sessions(&mut self) {
+    pub fn logout_all_sessions(&self) {
         match self.sessions.lock() {
             Ok(mut hashmap) => hashmap.clear(),
             Err(poisoned) => poisoned.into_inner().clear(),
