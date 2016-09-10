@@ -151,22 +151,19 @@ impl SessionManager {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<(), SessionError> {
+    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<ConnectionSignature , SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
         let token = try!(self.start(&conn));
-        self.login(user, password, &conn)
+        match self.login(user, password, &conn) {
+            Ok(_) => Ok(conn),
+            Err(e) => Err(e),
+        }
     }
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
-<<<<<<< 906b27b462927cea35a6673b0f70fcaec21b1450
-    pub fn start(&self, token: Option<&Token>, signature: &ConnectionSignature) -> Result<Token, SessionError> {
-        let cur_token = token.map_or(Token::new(), |x| *x);
-        let need_insert = match self.is_expired(&cur_token) {
-=======
     pub fn start(self: &mut Self, signature: &ConnectionSignature) -> Result<(), SessionError> {
         let need_insert = match self.is_expired(signature) {
->>>>>>> Token -> ConnectionSignature (again)
             Ok(true) => {
                 self.logout(signature);
                 true
@@ -194,13 +191,12 @@ impl SessionManager {
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
-<<<<<<< 906b27b462927cea35a6673b0f70fcaec21b1450
-    pub fn start_hyper(&self, token: Option<&Token>, req: &Request) -> Result<Token, SessionError> {
-=======
     pub fn start_hyper(&mut self, req: &Request) -> Result<ConnectionSignature, SessionError> {
->>>>>>> Token -> ConnectionSignature (again)
         let conn = ConnectionSignature::new_hyper(req);
-        self.start(token, &conn)
+        match self.start(token, &conn) {
+            Ok(_) => Ok(conn),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {
