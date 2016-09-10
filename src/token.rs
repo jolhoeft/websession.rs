@@ -22,4 +22,10 @@ impl Token {
             key: hasher.result_str(),
         }
     }
+
+    pub fn new_from_str(key: &str) -> Token {
+        Token {
+            key: key,
+        }
+    }
 }
