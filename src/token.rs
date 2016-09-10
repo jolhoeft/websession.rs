@@ -1,18 +1,25 @@
 extern crate uuid;
+extern crate crypto;
 
 use uuid::Uuid;
+use std::ops::Deref;
+use self::crypto::digest::Digest;
+use self::crypto::sha2::Sha256;
 
-#[derive(Copy, Eq, PartialEq, Debug, Clone, Hash)]
+#[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {
-    uuid: Uuid,
+    key: String,
 }
 
 impl Token {
     // I sort of don't want this public - maybe it needs to move back into
     // lib.rs?
-    pub fn new() -> Token {
+    pub fn new(secret: &str) -> Token {
+        let mut hasher = Sha256::new();
+        hasher.input_str(secret);
+        hasher.input_str(Uuid::new_v4().to_string().deref());
         Token {
-            uuid: Uuid::new_v4()
+            key: hasher.result_str(),
         }
     }
 }

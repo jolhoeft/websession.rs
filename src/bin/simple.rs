@@ -13,7 +13,7 @@ fn main() {
         "console");
 
     // These normally comes from something like a hyper header, but whatever
-    let signature = ConnectionSignature::new(&policy);
+    let signature = ConnectionSignature::new("sekrit", &policy);
 
     assert!(session_manager.start(&signature).is_ok());
     match session_manager.login(&String::from("user"),

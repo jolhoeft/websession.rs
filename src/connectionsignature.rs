@@ -26,10 +26,10 @@ impl PartialEq for ConnectionSignature {
 impl Eq for ConnectionSignature {}
 
 impl ConnectionSignature {
-    pub fn new(policy: &SessionPolicy) -> ConnectionSignature {
+    pub fn new(secret: &str, policy: &SessionPolicy) -> ConnectionSignature {
         ConnectionSignature {
             policy: policy.clone(),
-            token: Token::new(),
+            token: Token::new(secret),
         }
     }
 
