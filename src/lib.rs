@@ -192,8 +192,8 @@ impl SessionManager {
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
     pub fn start_hyper(&mut self, req: &Request) -> Result<ConnectionSignature, SessionError> {
-        let conn = ConnectionSignature::new_hyper(req);
-        match self.start(token, &conn) {
+        let conn = ConnectionSignature::new_hyper(req, self.cookie_name);
+        match self.start(&conn) {
             Ok(_) => Ok(conn),
             Err(e) => Err(e),
         }

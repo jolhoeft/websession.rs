@@ -38,10 +38,11 @@ impl ConnectionSignature {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn new_hyper(_: &Request) -> ConnectionSignature {
+    pub fn new_hyper(_: &Request, cookie_name: &str) -> ConnectionSignature {
         // stubbed in
         ConnectionSignature {
-            token: Token::new()
+            token: Token::new_from_str(cookie_name),
+            // XXX use the value of the cookie, not the name of the cookie
         }
     }
 }
