@@ -67,20 +67,21 @@ impl Session {
 
 pub struct SessionManager {
     expiration: Duration,
-    // policy: SessionPolicy,
     backing_store: Box<BackingStore + Send + Sync>,
     // cookie_dir: String,
-    sessions: Mutex<HashMap<Token, Session>>,
+    sessions: Mutex<HashMap<ConnectionSignature, Session>>,
+    cookie_name: String,
 }
 
 impl SessionManager {
-    pub fn new(expiration: Duration, _: SessionPolicy, backing_store: Box<BackingStore + Send + Sync>) -> SessionManager {
+    pub fn new(expiration: Duration, backing_store: Box<BackingStore + Send + Sync>, cookie_name: &str) -> SessionManager {
         SessionManager {
             expiration: expiration,
             // policy: policy,
             backing_store: backing_store,
             // cookie_dir: "cookies".to_string(),
             sessions: Mutex::new(HashMap::new()),
+            cookie_name: cookie_name.to_string(),
         }
     }
 
@@ -94,9 +95,9 @@ impl SessionManager {
     //     }
     // }
 
-    fn is_expired(&self, token: &Token) -> Result<bool, SessionError> {
+    fn is_expired(&self, signature: &ConnectionSignature) -> Result<bool, SessionError> {
         match self.sessions.lock() {
-            Ok(hashmap) => match hashmap.get(token) {
+            Ok(hashmap) => match hashmap.get(signature) {
                 Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
                     Ok(true)
                 } else {
@@ -111,17 +112,17 @@ impl SessionManager {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
-    pub fn login(&self, user: &str, password: &str, token: &Token) -> Result<(), SessionError> {
-        match self.is_expired(token) {
+    pub fn login(&mut self, user: &str, password: &str, signature: &ConnectionSignature) -> Result<(), SessionError> {
+        match self.is_expired(signature) {
             Ok(true) => {
-                self.logout(token);
+                self.logout(signature);
                 Err(SessionError::Expired)
             },
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
                 let pwhash = try!(self.backing_store.get_pwhash(user, true));
                 if bcrypt::verify(password, pwhash.as_str()) {
                     match self.sessions.lock() {
-                        Ok(mut hashmap) => match hashmap.get_mut(token) {
+                        Ok(mut hashmap) => match hashmap.get_mut(signature) {
                             Some(sess) => {
                                 sess.user = Some(user.to_string());
                                 sess.last_access = time::now().to_timespec();
@@ -142,27 +143,32 @@ impl SessionManager {
     }
 
     // This has the same caveats as logout_all_sessions; should it be a Result?
-    pub fn logout(&self, token: &Token) {
+    pub fn logout(&mut self, signature: &ConnectionSignature) {
         match self.sessions.lock() {
-            Ok(mut hashmap) => hashmap.remove(token),
-            Err(poisoned) => poisoned.into_inner().remove(token),
+            Ok(mut hashmap) => hashmap.remove(signature),
+            Err(poisoned) => poisoned.into_inner().remove(signature),
         };
     }
 
     #[cfg(feature = "hyper")]
     pub fn login_hyper(&self, user: &str, password: &str, req: &Request) -> Result<(), SessionError> {
         let conn = ConnectionSignature::new_hyper(req);
-        let token = try!{self.start(None, &conn)};
-        self.login(user, password, &token) // this is the wrong signature
+        let token = try!(self.start(&conn));
+        self.login(user, password, &conn)
     }
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
+<<<<<<< 906b27b462927cea35a6673b0f70fcaec21b1450
     pub fn start(&self, token: Option<&Token>, signature: &ConnectionSignature) -> Result<Token, SessionError> {
         let cur_token = token.map_or(Token::new(), |x| *x);
         let need_insert = match self.is_expired(&cur_token) {
+=======
+    pub fn start(self: &mut Self, signature: &ConnectionSignature) -> Result<(), SessionError> {
+        let need_insert = match self.is_expired(signature) {
+>>>>>>> Token -> ConnectionSignature (again)
             Ok(true) => {
-                self.logout(&cur_token);
+                self.logout(signature);
                 true
             },
             Ok(false) => false,
@@ -173,9 +179,9 @@ impl SessionManager {
         match self.sessions.lock() {
             Ok(mut hashmap) => {
                 if need_insert {
-                    hashmap.insert(cur_token.clone(), Session::new(signature));
+                    hashmap.insert(signature.clone(), Session::new(signature));
                 } else {
-                    match hashmap.get_mut(&cur_token) {
+                    match hashmap.get_mut(signature) {
                         Some(sess) => sess.last_access = time::now().to_timespec(),
                         None => return Err(SessionError::Lost),
                     }
@@ -183,19 +189,23 @@ impl SessionManager {
             },
             Err(_) => return Err(SessionError::Mutex),
         }
-        Ok(cur_token.clone())
+        Ok(())
     }
 
     #[cfg(feature = "hyper")]
     // if valid, returns the session struct and possibly update cookie in res
+<<<<<<< 906b27b462927cea35a6673b0f70fcaec21b1450
     pub fn start_hyper(&self, token: Option<&Token>, req: &Request) -> Result<Token, SessionError> {
+=======
+    pub fn start_hyper(&mut self, req: &Request) -> Result<ConnectionSignature, SessionError> {
+>>>>>>> Token -> ConnectionSignature (again)
         let conn = ConnectionSignature::new_hyper(req);
         self.start(token, &conn)
     }
 
-    pub fn get_user(&self, token: &Token) -> Result<Option<String>, SessionError> {
+    pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {
         match self.sessions.lock() {
-            Ok(hashmap) => match hashmap.get(token) {
+            Ok(hashmap) => match hashmap.get(signature) {
                 Some(sess) => Ok(sess.user.clone()),
                 None => Err(SessionError::Lost),
             },

@@ -1,6 +1,6 @@
 use connectionsignature::ConnectionSignature;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SessionPolicy {
 }
 

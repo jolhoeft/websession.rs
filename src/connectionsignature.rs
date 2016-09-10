@@ -4,18 +4,45 @@ extern crate hyper;
 #[cfg(feature = "hyper")]
 use hyper::server::request::Request;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConnectionSignature;
+use token::Token;
+use sessionpolicy::SessionPolicy;
+
+#[derive(Debug, Clone, Hash)]
+pub struct ConnectionSignature {
+    policy: SessionPolicy,
+    token: Token,
+}
+
+impl PartialEq for ConnectionSignature {
+    fn eq(&self, other: &ConnectionSignature) -> bool {
+        (self.policy == other.policy) && (self.token == other.token)
+    }
+
+    fn ne(&self, other: &ConnectionSignature) -> bool {
+        (self.policy != other.policy) || (self.token != other.token)
+    }
+}
+
+impl Eq for ConnectionSignature {}
 
 impl ConnectionSignature {
-    pub fn new() -> ConnectionSignature {
-        ConnectionSignature
+    pub fn new(policy: &SessionPolicy) -> ConnectionSignature {
+        ConnectionSignature {
+            policy: policy.clone(),
+            token: Token::new(),
+        }
+    }
+
+    pub fn get_token(&self) -> Token {
+        self.token.clone()
     }
 
     #[cfg(feature = "hyper")]
     pub fn new_hyper(_: &Request) -> ConnectionSignature {
         // stubbed in
-        ConnectionSignature
+        ConnectionSignature {
+            token: Token::new()
+        }
     }
 }
 
