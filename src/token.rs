@@ -25,7 +25,7 @@ impl Token {
 
     pub fn new_from_str(key: &str) -> Token {
         Token {
-            key: key,
+            key: key.to_string(),
         }
     }
 }
