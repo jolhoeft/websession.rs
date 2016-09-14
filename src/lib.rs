@@ -26,9 +26,6 @@ use pwhash::bcrypt;
 // use std::net::IpAddr;
 use std::sync::Mutex;
 
-#[cfg(feature = "hyper")]
-use hyper::server::request::Request;
-
 #[derive(Debug)]
 pub enum SessionError {
     Unauthorized,
@@ -73,7 +70,7 @@ pub struct SessionManager {
     backing_store: Box<BackingStore + Send + Sync>,
     // cookie_dir: String,
     sessions: Mutex<HashMap<ConnectionSignature, Session>>,
-    cookie_name: String,
+    pub cookie_name: String,
 }
 
 impl SessionManager {
@@ -143,26 +140,16 @@ impl SessionManager {
     }
 
     // This has the same caveats as logout_all_sessions; should it be a Result?
-    pub fn logout(&mut self, signature: &ConnectionSignature) {
+    pub fn logout(&self, signature: &ConnectionSignature) {
         match self.sessions.lock() {
             Ok(mut hashmap) => hashmap.remove(signature),
             Err(poisoned) => poisoned.into_inner().remove(signature),
         };
     }
 
-    #[cfg(feature = "hyper")]
-    pub fn login_hyper(&mut self, user: &str, password: &str, req: &Request) -> Result<ConnectionSignature , SessionError> {
-        let conn = ConnectionSignature::new_hyper(req);
-        let token = try!(self.start(&conn));
-        match self.login(user, password, &conn) {
-            Ok(_) => Ok(conn),
-            Err(e) => Err(e),
-        }
-    }
-
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
-    pub fn start(self: &mut Self, signature: &ConnectionSignature) -> Result<(), SessionError> {
+    pub fn start(self: &Self, signature: &ConnectionSignature) -> Result<(), SessionError> {
         let need_insert = match self.is_expired(signature) {
             Ok(true) => {
                 self.logout(signature);
@@ -183,16 +170,6 @@ impl SessionManager {
             }
         }
         Ok(())
-    }
-
-    #[cfg(feature = "hyper")]
-    // if valid, returns the session struct and possibly update cookie in res
-    pub fn start_hyper(&mut self, req: &Request) -> Result<ConnectionSignature, SessionError> {
-        let conn = ConnectionSignature::new_hyper(req, self.cookie_name);
-        match self.start(&conn) {
-            Ok(_) => Ok(conn),
-            Err(e) => Err(e),
-        }
     }
 
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {

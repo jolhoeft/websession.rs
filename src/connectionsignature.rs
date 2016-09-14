@@ -1,7 +1,4 @@
 #[cfg(feature = "hyper")]
-extern crate hyper;
-
-#[cfg(feature = "hyper")]
 use hyper::server::request::Request;
 
 use token::Token;
@@ -38,11 +35,11 @@ impl ConnectionSignature {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn new_hyper(_: &Request, cookie_name: &str) -> ConnectionSignature {
+    pub fn new_hyper(_req: &Request, _cookie_name: &str, policy: &SessionPolicy) -> ConnectionSignature {
         // stubbed in
         ConnectionSignature {
-            token: Token::new_from_str(cookie_name),
-            // XXX use the value of the cookie, not the name of the cookie
+            token: Token::new("sekrit"), // Todo: wrong, fixme!!! extract from request using cookie_name
+            policy: policy.clone(),
         }
     }
 }
