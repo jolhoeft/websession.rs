@@ -99,16 +99,14 @@ impl SessionManager {
     // }
 
     fn is_expired(&self, signature: &ConnectionSignature) -> Result<bool, SessionError> {
-        match self.sessions.lock() {
-            Ok(hashmap) => match hashmap.get(signature) {
-                Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                },
-                None => Err(SessionError::Lost),
+        let hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
+        match hashmap.get(signature) {
+            Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
+                Ok(true)
+            } else {
+                Ok(false)
             },
-            Err(_) => Err(SessionError::Mutex),
+            None => Err(SessionError::Lost),
         }
     }
 
@@ -123,18 +121,16 @@ impl SessionManager {
                 Err(SessionError::Expired)
             },
             Ok(false) => if (user.trim() == user) && (user.len() > 1) {
-                let pwhash = try!(self.backing_store.get_pwhash(user, true));
-                if bcrypt::verify(password, pwhash.as_str()) {
-                    match self.sessions.lock() {
-                        Ok(mut hashmap) => match hashmap.get_mut(signature) {
-                            Some(sess) => {
-                                sess.user = Some(user.to_string());
-                                sess.last_access = time::now().to_timespec();
-                                Ok(())
-                            },
-                            None => Err(SessionError::Lost),
+                let creds = try!(self.backing_store.get_credentials(user, true));
+                if bcrypt::verify(password, creds.as_str()) {
+                    let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
+                    match hashmap.get_mut(signature) {
+                        Some(sess) => {
+                            sess.user = Some(user.to_string());
+                            sess.last_access = time::now().to_timespec();
+                            Ok(())
                         },
-                        Err(_) => Err(SessionError::Mutex),
+                        None => Err(SessionError::Lost),
                     }
                 } else { // didn't verify
                     Err(SessionError::Unauthorized)
@@ -177,18 +173,14 @@ impl SessionManager {
             Err(e) => return Err(e),
         };
 
-        match self.sessions.lock() {
-            Ok(mut hashmap) => {
-                if need_insert {
-                    hashmap.insert(signature.clone(), Session::new(signature));
-                } else {
-                    match hashmap.get_mut(signature) {
-                        Some(sess) => sess.last_access = time::now().to_timespec(),
-                        None => return Err(SessionError::Lost),
-                    }
-                }
-            },
-            Err(_) => return Err(SessionError::Mutex),
+        let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
+        if need_insert {
+            hashmap.insert(signature.clone(), Session::new(signature));
+        } else {
+            match hashmap.get_mut(signature) {
+                Some(sess) => sess.last_access = time::now().to_timespec(),
+                None => return Err(SessionError::Lost),
+            }
         }
         Ok(())
     }
@@ -207,15 +199,15 @@ impl SessionManager {
         match self.is_expired(signature) {
             Ok(true) => Err(SessionError::Expired),
             Err(e) => Err(e),
-            Ok(false) => match self.sessions.lock() {
-                Ok(mut hashmap) => match hashmap.get_mut(signature) {
+            Ok(false) => {
+                let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
+                match hashmap.get_mut(signature) {
                     Some(sess) => {
                         sess.last_access = time::now().to_timespec();
                         Ok(sess.user.clone())
                     },
                     None => Err(SessionError::Lost),
-                },
-                Err(_) => Err(SessionError::Mutex),
+                }
             }
         }
     }
