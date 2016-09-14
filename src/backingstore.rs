@@ -4,6 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, BufWriter};
 use std::convert::From;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 #[derive(Debug)]
 pub enum BackingStoreError {
@@ -12,6 +13,7 @@ pub enum BackingStoreError {
     Locked,
     UserExists,
     IO(io::Error),
+    Mutex,
 }
 
 impl From<io::Error> for BackingStoreError {
@@ -37,21 +39,28 @@ pub trait BackingStore {
 
 #[derive(Debug)]
 pub struct FileBackingStore {
-    filename: String,
+    filename: Mutex<String>,
 }
 
 impl FileBackingStore {
     pub fn new(filename: &str) -> FileBackingStore {
+        let fname = filename.to_string();
         FileBackingStore {
-            filename: filename.to_string(),
+            filename: Mutex::new(fname.clone()),
         }
     }
 
     fn load_file(&self) -> Result<String, BackingStoreError> {
-        let mut f = try!(File::open(self.filename.clone()));
-        let mut buf = String::new();
-        try!(f.read_to_string(&mut buf));
-        Ok(buf)
+        match self.filename.lock() {
+            Ok(fname) => {
+                let name = fname.clone();
+                let mut f = try!(File::open(name));
+                let mut buf = String::new();
+                try!(f.read_to_string(&mut buf));
+                Ok(buf)
+            },
+            Err(_) => Err(BackingStoreError::Mutex),
+        }
     }
 
     fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
@@ -84,32 +93,37 @@ impl FileBackingStore {
         let mut found = false;
         let pwfile = try!(self.load_file());
 
-        let oldfn = self.filename.clone();
-        let newfn = oldfn.clone() + ".old";
-        try!(fs::rename(oldfn.clone(), newfn));
-        let mut f = BufWriter::new(try!(File::create(oldfn)));
-        for line in pwfile.lines() {
-            match try!(self.line_has_user(line, user, fail_if_locked)) {
-                Some(_) => match new_pwhash {
-                    Some(newhash) => {
-                        try!(f.write_all(user.as_bytes()));
-                        try!(f.write_all(b":"));
-                        try!(f.write_all(newhash.as_bytes()));
-                        try!(f.write_all(b"\n"));
-                        found = true;
-                    },
-                    None => found = true, // we're deleting, don't write out
-                },
-                None => { // no user on this line, continue
-                    try!(f.write_all(line.as_bytes()));
-                    try!(f.write_all(b"\n"));
-                },
+        match self.filename.lock() {
+            Err(_) => Err(BackingStoreError::Mutex),
+            Ok(fname) => {
+                let oldfn = fname.clone();
+                let newfn = oldfn.to_string() + ".old";
+                try!(fs::rename(oldfn.clone(), newfn));
+                let mut f = BufWriter::new(try!(File::create(oldfn)));
+                for line in pwfile.lines() {
+                    match try!(self.line_has_user(line, user, fail_if_locked)) {
+                        Some(_) => match new_pwhash {
+                            Some(newhash) => {
+                                try!(f.write_all(user.as_bytes()));
+                                try!(f.write_all(b":"));
+                                try!(f.write_all(newhash.as_bytes()));
+                                try!(f.write_all(b"\n"));
+                                found = true;
+                            },
+                            None => found = true, // we're deleting, don't write out
+                        },
+                        None => { // no user on this line, continue
+                            try!(f.write_all(line.as_bytes()));
+                            try!(f.write_all(b"\n"));
+                        },
+                    }
+                }
+                if found {
+                    Ok(())
+                } else {
+                    Err(BackingStoreError::NoSuchUser)
+                }
             }
-        }
-        if found {
-            Ok(())
-        } else {
-            Err(BackingStoreError::NoSuchUser)
         }
     }
 }
@@ -158,13 +172,17 @@ impl BackingStore for FileBackingStore {
     fn create(&mut self, user: &str, pwhash: &str) -> Result<(), BackingStoreError> {
         match self.get_pwhash(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
-            Err(BackingStoreError::NoSuchUser) => {
-                let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(self.filename.clone())));
-                try!(f.write_all(user.as_bytes()));
-                try!(f.write_all(b":"));
-                try!(f.write_all(pwhash.as_bytes()));
-                try!(f.write_all(b"\n"));
-                Ok(())
+            Err(BackingStoreError::NoSuchUser) => match self.filename.lock() {
+                Ok(fname) => {
+                    let name = (*fname).clone();
+                    let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(name)));
+                    try!(f.write_all(user.as_bytes()));
+                    try!(f.write_all(b":"));
+                    try!(f.write_all(pwhash.as_bytes()));
+                    try!(f.write_all(b"\n"));
+                    Ok(())
+                },
+                Err(_) => Err(BackingStoreError::Mutex),
             },
             Err(e) => Err(e),
         }
