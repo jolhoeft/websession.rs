@@ -12,7 +12,6 @@ pub mod connectionsignature;
 pub use self::connectionsignature::ConnectionSignature;
 
 mod token;
-use self::token::Token;
 
 pub mod sessionpolicy;
 pub use self::sessionpolicy::SessionPolicy;
@@ -37,14 +36,18 @@ pub enum SessionError {
     Expired,
     Lost,
     BackingStore(BackingStoreError),
-    Mutex
+    Mutex,
 }
 
 impl From<BackingStoreError> for SessionError {
-    // Arguably, we should parse these and convert non-data-integrity errors to
-    // Unauthorized errors.
     fn from(err: BackingStoreError) -> SessionError {
-        SessionError::BackingStore(err)
+        match err {
+            BackingStoreError::NoSuchUser => SessionError::Unauthorized,
+            BackingStoreError::Locked => SessionError::Unauthorized,
+            BackingStoreError::UserExists => SessionError::Unauthorized,
+            // not sure what else we can trap
+            _ => SessionError::BackingStore(err),
+        }
     }
 }
 
@@ -112,6 +115,7 @@ impl SessionManager {
     // This doesn't validate the signature against the session, nor does it make
     // sure the signature matches our policy requirements.  Right now, it's hard
     // for either of these to fail, because we don't have any requirements.
+
     pub fn login(&mut self, user: &str, password: &str, signature: &ConnectionSignature) -> Result<(), SessionError> {
         match self.is_expired(signature) {
             Ok(true) => {
@@ -200,12 +204,19 @@ impl SessionManager {
     }
 
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {
-        match self.sessions.lock() {
-            Ok(hashmap) => match hashmap.get(signature) {
-                Some(sess) => Ok(sess.user.clone()),
-                None => Err(SessionError::Lost),
-            },
-            Err(_) => Err(SessionError::Mutex),
+        match self.is_expired(signature) {
+            Ok(true) => Err(SessionError::Expired),
+            Err(e) => Err(e),
+            Ok(false) => match self.sessions.lock() {
+                Ok(mut hashmap) => match hashmap.get_mut(signature) {
+                    Some(sess) => {
+                        sess.last_access = time::now().to_timespec();
+                        Ok(sess.user.clone())
+                    },
+                    None => Err(SessionError::Lost),
+                },
+                Err(_) => Err(SessionError::Mutex),
+            }
         }
     }
 
