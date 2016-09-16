@@ -12,6 +12,7 @@ pub mod connectionsignature;
 pub use self::connectionsignature::ConnectionSignature;
 
 mod token;
+pub use self::token::Token;
 
 pub mod sessionpolicy;
 pub use self::sessionpolicy::SessionPolicy;
@@ -67,6 +68,7 @@ impl Session {
 
 pub struct SessionManager {
     expiration: Duration,
+    policy: SessionPolicy,
     backing_store: Box<BackingStore + Send + Sync>,
     // cookie_dir: String,
     sessions: Mutex<HashMap<ConnectionSignature, Session>>,
@@ -74,10 +76,10 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(expiration: Duration, backing_store: Box<BackingStore + Send + Sync>, cookie_name: &str) -> SessionManager {
+    pub fn new(expiration: Duration, backing_store: Box<BackingStore + Send + Sync>, policy: SessionPolicy, cookie_name: &str) -> SessionManager {
         SessionManager {
             expiration: expiration,
-            // policy: policy,
+            policy: policy,
             backing_store: backing_store,
             // cookie_dir: "cookies".to_string(),
             sessions: Mutex::new(HashMap::new()),
@@ -149,7 +151,8 @@ impl SessionManager {
 
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
-    pub fn start(self: &Self, signature: &ConnectionSignature) -> Result<(), SessionError> {
+    pub fn start(self: &Self, signature: &ConnectionSignature) -> Result<String, SessionError> {
+        let mut new_sig = ConnectionSignature::new_from_signature(signature);
         let need_insert = match self.is_expired(signature) {
             Ok(true) => {
                 self.logout(signature);
@@ -162,14 +165,15 @@ impl SessionManager {
 
         let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
         if need_insert {
-            hashmap.insert(signature.clone(), Session::new(signature));
+            new_sig.token = Token::new(self.policy.salt.as_str());
+            hashmap.insert(new_sig.clone(), Session::new(&new_sig));
         } else {
             match hashmap.get_mut(signature) {
                 Some(sess) => sess.last_access = time::now().to_timespec(),
                 None => return Err(SessionError::Lost),
             }
         }
-        Ok(())
+        Ok(new_sig.token.to_string())
     }
 
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {

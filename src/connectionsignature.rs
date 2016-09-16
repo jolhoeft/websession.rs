@@ -7,7 +7,7 @@ use sessionpolicy::SessionPolicy;
 #[derive(Debug, Clone, Hash)]
 pub struct ConnectionSignature {
     policy: SessionPolicy,
-    token: Token,
+    pub token: Token,
 }
 
 impl PartialEq for ConnectionSignature {
@@ -26,7 +26,14 @@ impl ConnectionSignature {
     pub fn new(secret: &str, policy: &SessionPolicy) -> ConnectionSignature {
         ConnectionSignature {
             policy: policy.clone(),
-            token: Token::new(secret),
+            token: Token::new_from_str(secret),
+        }
+    }
+
+    pub fn new_from_signature(oldsig: &ConnectionSignature) -> ConnectionSignature {
+        ConnectionSignature {
+            policy: oldsig.policy.clone(),
+            token: oldsig.token.clone(),
         }
     }
 
@@ -36,7 +43,11 @@ impl ConnectionSignature {
 
     #[cfg(feature = "hyper")]
     pub fn new_hyper(_req: &Request, _cookie_name: &str, policy: &SessionPolicy) -> ConnectionSignature {
-        // stubbed in
+        // get cookie here
+        // if cookie exists:
+        // token = Token::new_from_str(cookie.value);
+        // else
+        // token = Token::new(policy.salt);
         ConnectionSignature {
             token: Token::new("sekrit"), // Todo: wrong, fixme!!! extract from request using cookie_name
             policy: policy.clone(),

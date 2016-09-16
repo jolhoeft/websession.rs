@@ -2,11 +2,14 @@ use connectionsignature::ConnectionSignature;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SessionPolicy {
+    pub salt: String,
 }
 
 impl SessionPolicy {
-    pub fn new() -> SessionPolicy {
-        SessionPolicy {}
+    pub fn new(salt: &str) -> SessionPolicy {
+        SessionPolicy {
+            salt: salt.to_string(),
+        }
     }
 
     // Tests if a signature is suitable for our current policy

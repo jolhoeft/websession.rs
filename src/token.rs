@@ -28,4 +28,8 @@ impl Token {
             key: key.to_string(),
         }
     }
+
+    pub fn to_string(&self) -> String {
+        self.key.clone()
+    }
 }
