@@ -5,11 +5,11 @@ extern crate time;
 extern crate uuid;
 extern crate pwhash;
 
-mod sessions;
-mod backingstore;
-mod connectionsignature;
-mod token;
-mod sessionpolicy;
+pub mod sessions;
+pub mod backingstore;
+pub mod connectionsignature;
+pub mod token;
+pub mod sessionpolicy;
 
 use std::collections::HashMap;
 use pwhash::bcrypt;
@@ -20,6 +20,7 @@ use self::connectionsignature::ConnectionSignature;
 use self::sessions::{SessionManager, SessionError};
 use self::sessionpolicy::SessionPolicy;
 
+#[derive(Debug)]
 pub enum AuthError {
     Expired,
     Unauthorized,
@@ -40,7 +41,7 @@ impl From<BackingStoreError> for AuthError {
     }
 }
 
-struct Authenticator {
+pub struct Authenticator {
     sess_mgr: SessionManager,
     backing_store: Box<BackingStore + Send + Sync>,
     cookie_name: String,
@@ -78,6 +79,13 @@ impl Authenticator {
                 Ok(false) => Err(AuthError::Unauthorized),
                 Err(e) => Err(e),
             },
+            Err(e) => Err(AuthError::Session(e)),
+        }
+    }
+
+    pub fn run(&self, signature: &ConnectionSignature) -> Result<String, AuthError> {
+        match self.sess_mgr.start(signature) {
+            Ok(s) => Ok(s),
             Err(e) => Err(AuthError::Session(e)),
         }
     }
