@@ -1,5 +1,4 @@
 extern crate time;
-extern crate pwhash;
 
 #[cfg(feature = "hyper")]
 extern crate hyper;
