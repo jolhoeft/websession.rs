@@ -234,7 +234,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
         let creds = try!(self.get_credentials(user, true));
-        Ok(pass == creds)
+        Ok(bcrypt::verify(pass, creds.as_str()))
     }
 
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
@@ -243,7 +243,8 @@ impl BackingStore for MemoryBackingStore {
             Some(entry) => match entry.locked {
                 true => Err(BackingStoreError::Locked),
                 false => {
-                    entry.credentials = new_creds.to_string();
+                    let hash = try!(bcrypt::hash(new_creds));
+                    entry.credentials = hash.to_string();
                     Ok(())
                 },
             },
@@ -286,8 +287,9 @@ impl BackingStore for MemoryBackingStore {
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
         } else {
+            let hash = try!(bcrypt::hash(creds));
             hashmap.insert(user.to_string(),
-                MemoryEntry { credentials: creds.to_string(), locked: false, });
+                MemoryEntry { credentials: hash.to_string(), locked: false, });
             Ok(())
         }
     }
