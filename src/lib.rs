@@ -67,7 +67,7 @@ impl Authenticator {
     pub fn login(&self, user: &str, creds: &str, signature: &ConnectionSignature) -> Result<(), AuthError> {
         match self.sess_mgr.is_expired(signature) {
             Ok(true) => {
-                self.sess_mgr.logout(signature);
+                self.sess_mgr.stop(signature);
                 Err(AuthError::Expired)
             },
             Ok(false) => match self.verify(user, creds) {
@@ -89,7 +89,7 @@ impl Authenticator {
             Ok(mut hashmap) => hashmap.remove(&id),
             Err(poisoned) => poisoned.into_inner().remove(&id),
         };
-        self.sess_mgr.logout(signature);
+        self.sess_mgr.stop(signature);
     }
 
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, AuthError> {

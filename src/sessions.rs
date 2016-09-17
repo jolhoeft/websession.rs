@@ -79,8 +79,8 @@ impl SessionManager {
         }
     }
 
-    // This has the same caveats as logout_all_sessions; should it be a Result?
-    pub fn logout(&self, signature: &ConnectionSignature) {
+    // This has the same caveats as stop_all_sessions; should it be a Result?
+    pub fn stop(&self, signature: &ConnectionSignature) {
         match self.sessions.lock() {
             Ok(mut hashmap) => hashmap.remove(signature),
             Err(poisoned) => poisoned.into_inner().remove(signature),
@@ -91,7 +91,7 @@ impl SessionManager {
         let mut new_sig = ConnectionSignature::new_from_signature(signature);
         let need_insert = match self.is_expired(signature) {
             Ok(true) => {
-                self.logout(signature);
+                self.stop(signature);
                 true
             },
             Ok(false) => false,
@@ -118,7 +118,7 @@ impl SessionManager {
 
     // Should this fail if the mutex blew up?
     // It's not supposed to break anyway.
-    pub fn logout_all_sessions(&self) {
+    pub fn stop_all_sessions(&self) {
         match self.sessions.lock() {
             Ok(mut hashmap) => hashmap.clear(),
             Err(poisoned) => poisoned.into_inner().clear(),
