@@ -13,7 +13,7 @@ pub mod sessionpolicy;
 
 use std::collections::HashMap;
 use pwhash::bcrypt;
-use time::{Timespec, Duration};
+use time::Duration;
 use std::sync::Mutex;
 use self::backingstore::{BackingStore, BackingStoreError};
 use self::connectionsignature::ConnectionSignature;
@@ -80,6 +80,30 @@ impl Authenticator {
                 Err(e) => Err(e),
             },
             Err(e) => Err(AuthError::Session(e)),
+        }
+    }
+
+    pub fn logout(&self, signature: &ConnectionSignature) {
+        let id = signature.token.to_string();
+        match self.mapping.lock() {
+            Ok(mut hashmap) => hashmap.remove(&id),
+            Err(poisoned) => poisoned.into_inner().remove(&id),
+        };
+        self.sess_mgr.logout(signature);
+    }
+
+    pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, AuthError> {
+        match self.sess_mgr.is_expired(signature) {
+            Ok(true) => Err(AuthError::Expired),
+            Ok(false) => match self.mapping.lock() {
+                Ok(hashmap) => Ok(hashmap.get(&signature.token.to_string())
+                    .map(|s| s.clone())), // this is to unborrow the username
+                Err(_) => Err(AuthError::Mutex),
+            },
+            Err(e) => match e {
+                SessionError::Lost => Ok(None),
+                _ => Err(AuthError::Session(e)),
+            },
         }
     }
 
