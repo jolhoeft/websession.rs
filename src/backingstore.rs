@@ -1,3 +1,5 @@
+extern crate pwhash;
+
 use std::io;
 use std::fs;
 use std::fs::{File, OpenOptions};
@@ -5,6 +7,7 @@ use std::io::{Read, Write, BufWriter};
 use std::convert::From;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use self::pwhash::bcrypt;
 
 #[derive(Debug)]
 pub enum BackingStoreError {
@@ -14,11 +17,18 @@ pub enum BackingStoreError {
     UserExists,
     IO(io::Error),
     Mutex,
+    Hash(self::pwhash::error::Error),
 }
 
 impl From<io::Error> for BackingStoreError {
     fn from(err: io::Error) -> BackingStoreError {
         BackingStoreError::IO(err)
+    }
+}
+
+impl From<self::pwhash::error::Error> for BackingStoreError {
+    fn from(err: self::pwhash::error::Error) -> BackingStoreError {
+        BackingStoreError::Hash(err)
     }
 }
 
@@ -28,10 +38,11 @@ impl From<io::Error> for BackingStoreError {
 // N.B., implementors of BackingStore provide a new that gets whatever is needed
 // to connect to the store.
 pub trait BackingStore {
+    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError>;
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
     fn lock(&mut self, user: &str) -> Result<(), BackingStoreError>;
-    fn islocked(&self, user: &str) -> Result<bool, BackingStoreError>;
+    fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError>;
     fn unlock(&mut self, user: &str) -> Result<(), BackingStoreError>;
     fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
     fn delete(&mut self, user: &str) -> Result<(), BackingStoreError>;
@@ -132,6 +143,11 @@ impl BackingStore for FileBackingStore {
         Err(BackingStoreError::NoSuchUser)
     }
 
+    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
+        let hash = try!(self.get_credentials(user, true));
+        Ok(bcrypt::verify(pass, hash.as_str()))
+    }
+
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
         self.update_user_hash(user, Some(new_creds), true)
     }
@@ -146,7 +162,7 @@ impl BackingStore for FileBackingStore {
         Ok(())
     }
 
-    fn islocked(&self, user: &str) -> Result<bool, BackingStoreError> {
+    fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hash = try!(self.get_credentials(user, false));
         self.hash_is_locked(&hash)
     }
@@ -168,9 +184,10 @@ impl BackingStore for FileBackingStore {
                 let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
                 let name = (*fname).clone();
                 let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(name)));
+                let hash = try!(bcrypt::hash(creds));
                 try!(f.write_all(user.as_bytes()));
                 try!(f.write_all(b":"));
-                try!(f.write_all(creds.as_bytes()));
+                try!(f.write_all(hash.as_bytes()));
                 try!(f.write_all(b"\n"));
                 Ok(())
             },
@@ -215,6 +232,11 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
+    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
+        let creds = try!(self.get_credentials(user, true));
+        Ok(pass == creds)
+    }
+
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get_mut(user) {
@@ -240,7 +262,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn islocked(&self, user: &str) -> Result<bool, BackingStoreError> {
+    fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get(user) {
             Some(entry) => Ok(entry.locked),
