@@ -13,7 +13,7 @@ fn main() {
 
     let authmgr = Authenticator::new(
 	    Box::new(FileBackingStore::new("../../data/passwd")),
-        Duration::seconds(3600), policy.clone(), "cookiename");
+        Duration::seconds(3600), policy.clone());
 
     // These normally comes from something like a hyper header, but whatever
     let signature = ConnectionSignature::new("sekrit", &policy);
