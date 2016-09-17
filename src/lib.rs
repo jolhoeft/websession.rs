@@ -3,7 +3,6 @@
 
 extern crate time;
 extern crate uuid;
-extern crate pwhash;
 
 pub mod sessions;
 pub mod backingstore;
@@ -12,7 +11,6 @@ pub mod token;
 pub mod sessionpolicy;
 
 use std::collections::HashMap;
-use pwhash::bcrypt;
 use time::Duration;
 use std::sync::Mutex;
 use self::backingstore::{BackingStore, BackingStoreError};
@@ -44,23 +42,24 @@ impl From<BackingStoreError> for AuthError {
 pub struct Authenticator {
     sess_mgr: SessionManager,
     backing_store: Box<BackingStore + Send + Sync>,
-    cookie_name: String,
+    // Do we need this, or does the app just hang onto this for us?
+    // cookie_name: String,
     mapping: Mutex<HashMap<String, String>>,
 }
 
 impl Authenticator {
-    pub fn new(backing_store: Box<BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy, cookie_name: &str) -> Authenticator {
+    // add `cookie_name: &str` as the last argument if we need it
+    pub fn new(backing_store: Box<BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy) -> Authenticator {
         Authenticator {
             sess_mgr: SessionManager::new(expiration, policy),
             backing_store: backing_store,
-            cookie_name: cookie_name.to_string(),
+            // cookie_name: cookie_name.to_string(),
             mapping: Mutex::new(HashMap::new()),
         }
     }
 
     fn verify(&self, user: &str, creds: &str) -> Result<bool, AuthError> {
-        let real_creds = try!(self.backing_store.get_credentials(user, true));
-        Ok(bcrypt::verify(creds, real_creds.as_str()))
+        self.backing_store.verify(user, creds).map_err(|e| AuthError::BackingStore(e))
     }
 
     // should check policy
@@ -107,6 +106,30 @@ impl Authenticator {
         }
     }
 
+    // These doesn't take a ConnectionSignature because maybe we want to
+    // manipulate a user other than ourself.
+    pub fn lock_user(&mut self, user: &str) -> Result<(), AuthError> {
+        self.backing_store.lock(user).map_err(|e| AuthError::BackingStore(e))
+    }
+
+    pub fn islocked(&self, user: &str) -> Result<bool, AuthError> {
+        self.backing_store.is_locked(user).map_err(|e| AuthError::BackingStore(e))
+    }
+
+    pub fn unlock(&mut self, user: &str) -> Result<(), AuthError> {
+        self.backing_store.unlock(user).map_err(|e| AuthError::BackingStore(e))
+    }
+
+    pub fn create(&mut self, user: &str, creds: &str) -> Result<(), AuthError> {
+        self.backing_store.create(user, creds).map_err(|e| AuthError::BackingStore(e))
+    }
+
+    pub fn delete(&mut self, user: &str) -> Result<(), AuthError> {
+        self.backing_store.delete(user).map_err(|e| AuthError::BackingStore(e))
+    }
+
+    // This is the main driver - it returns the current value for the cookie, or
+    // an error if something went wrong.
     pub fn run(&self, signature: &ConnectionSignature) -> Result<String, AuthError> {
         match self.sess_mgr.start(signature) {
             Ok(s) => Ok(s),
