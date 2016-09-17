@@ -26,17 +26,16 @@ pub enum SessionError {
 
 #[derive(Debug)]
 struct Session {
-    user: Option<String>,
     last_access: Timespec,
-    signature: ConnectionSignature,
+    // We're not using this right now, but will need it when we match policies
+    // signature: ConnectionSignature,
 }
 
 impl Session {
-    fn new(signature: &ConnectionSignature) -> Session {
+    fn new(_: &ConnectionSignature) -> Session {
         Session {
-            user: None,
             last_access: time::now().to_timespec(),
-            signature: signature.clone(),
+            // signature: signature.clone(),
         }
     }
 }
@@ -111,23 +110,6 @@ impl SessionManager {
             }
         }
         Ok(new_sig.token.to_string())
-    }
-
-    pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, SessionError> {
-        match self.is_expired(signature) {
-            Ok(true) => Err(SessionError::Expired),
-            Err(e) => Err(e),
-            Ok(false) => {
-                let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
-                match hashmap.get_mut(signature) {
-                    Some(sess) => {
-                        sess.last_access = time::now().to_timespec();
-                        Ok(sess.user.clone())
-                    },
-                    None => Err(SessionError::Lost),
-                }
-            }
-        }
     }
 
     // Todo: Nickel does not give us direct access to a hyper response
