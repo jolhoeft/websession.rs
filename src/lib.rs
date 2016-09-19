@@ -152,7 +152,7 @@ impl SessionManager {
     // if valid, returns the session struct and possibly update cookie in
     // res; if invalid, returns None
     pub fn start(self: &Self, signature: &ConnectionSignature) -> Result<String, SessionError> {
-        let mut new_sig = ConnectionSignature::new_from_signature(signature);
+        let mut new_sig = signature.clone();
         let need_insert = match self.is_expired(signature) {
             Ok(true) => {
                 self.logout(signature);

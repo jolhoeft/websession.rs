@@ -30,13 +30,6 @@ impl ConnectionSignature {
         }
     }
 
-    pub fn new_from_signature(oldsig: &ConnectionSignature) -> ConnectionSignature {
-        ConnectionSignature {
-            policy: oldsig.policy.clone(),
-            token: oldsig.token.clone(),
-        }
-    }
-
     pub fn get_token(&self) -> Token {
         self.token.clone()
     }
