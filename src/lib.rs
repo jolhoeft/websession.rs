@@ -68,7 +68,7 @@ impl Session {
 
 pub struct SessionManager {
     expiration: Duration,
-    policy: SessionPolicy,
+    pub policy: SessionPolicy,
     backing_store: Box<BackingStore + Send + Sync>,
     // cookie_dir: String,
     sessions: Mutex<HashMap<ConnectionSignature, Session>>,
