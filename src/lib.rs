@@ -3,6 +3,8 @@
 
 extern crate time;
 extern crate uuid;
+#[cfg(feature = "hyper")]
+extern crate hyper;
 
 pub mod sessions;
 pub mod backingstore;
