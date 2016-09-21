@@ -12,11 +12,12 @@ pub mod connectionsignature;
 pub mod token;
 pub mod sessionpolicy;
 
+pub use self::connectionsignature::ConnectionSignature;
+
 use std::collections::HashMap;
 use time::Duration;
 use std::sync::Mutex;
 use self::backingstore::{BackingStore, BackingStoreError};
-use self::connectionsignature::ConnectionSignature;
 use self::sessions::{SessionManager, SessionError};
 use self::sessionpolicy::SessionPolicy;
 
