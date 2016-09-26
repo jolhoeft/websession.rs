@@ -2,6 +2,7 @@ extern crate uuid;
 extern crate crypto;
 
 use uuid::Uuid;
+use std::fmt;
 use std::ops::Deref;
 use self::crypto::digest::Digest;
 use self::crypto::sha2::Sha256;
@@ -28,8 +29,10 @@ impl Token {
             key: key.to_string(),
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        self.key.clone()
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.key)
     }
 }

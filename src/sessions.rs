@@ -86,8 +86,8 @@ impl SessionManager {
         };
     }
 
-    pub fn start(&self, signature: &ConnectionSignature) -> Result<String, SessionError> {
-        let mut new_sig = ConnectionSignature::new_from_signature(signature);
+    pub fn start(&self, signature: &ConnectionSignature) -> Result<ConnectionSignature, SessionError> {
+        let mut new_sig = signature.clone();
         let need_insert = match self.is_expired(signature) {
             Ok(true) => {
                 self.stop(signature);
@@ -108,7 +108,7 @@ impl SessionManager {
                 None => return Err(SessionError::Lost),
             }
         }
-        Ok(new_sig.token.to_string())
+        Ok(new_sig)
     }
 
     // Todo: Nickel does not give us direct access to a hyper response

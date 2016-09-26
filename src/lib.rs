@@ -19,7 +19,7 @@ use time::Duration;
 use std::sync::Mutex;
 use self::backingstore::{BackingStore, BackingStoreError};
 use self::sessions::{SessionManager, SessionError};
-use self::sessionpolicy::SessionPolicy;
+pub use self::sessionpolicy::SessionPolicy;
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -41,6 +41,13 @@ impl From<BackingStoreError> for AuthError {
         }
     }
 }
+
+impl From<SessionError> for AuthError {
+    fn from(err: SessionError) -> AuthError {
+        AuthError::Session(err)
+    }
+}
+
 
 pub struct Authenticator {
     sess_mgr: SessionManager,
@@ -131,12 +138,11 @@ impl Authenticator {
         self.backing_store.delete(user).map_err(|e| AuthError::BackingStore(e))
     }
 
-    // This is the main driver - it returns the current value for the cookie, or
-    // an error if something went wrong.
-    pub fn run(&self, signature: &ConnectionSignature) -> Result<String, AuthError> {
-        match self.sess_mgr.start(signature) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(AuthError::Session(e)),
-        }
+    // This is the main driver - it returns a signature tht contains
+    // the current value for the cookie, or an error if something went
+    // wrong. The returned signature may be different from the one
+    // provided.
+    pub fn run(&self, signature: &ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
+        self.sess_mgr.start(signature).map_err(|err| AuthError::from(err))
     }
 }

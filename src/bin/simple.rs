@@ -13,10 +13,10 @@ fn main() {
 
     let authmgr = Authenticator::new(
 	    Box::new(FileBackingStore::new("../../data/passwd")),
-        Duration::seconds(3600), policy.clone());
+        Duration::seconds(3600), policy);
 
     // These normally comes from something like a hyper header, but whatever
-    let signature = ConnectionSignature::new("sekrit", &policy);
+    let signature = ConnectionSignature::new("sekrit");
 
     match authmgr.run(&signature) {
         Err(e) => panic!(format!("{:?}", e)),
