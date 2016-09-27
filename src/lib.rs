@@ -48,7 +48,6 @@ impl From<SessionError> for AuthError {
     }
 }
 
-
 pub struct Authenticator {
     sess_mgr: SessionManager,
     backing_store: Box<BackingStore + Send + Sync>,
