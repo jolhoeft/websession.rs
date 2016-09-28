@@ -145,7 +145,7 @@ impl BackingStore for FileBackingStore {
 
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
         let hash = try!(self.get_credentials(user, true));
-        Ok(bcrypt::verify(pass, hash.as_str()))
+        Ok(bcrypt::verify(pass, &hash))
     }
 
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
@@ -234,7 +234,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
         let creds = try!(self.get_credentials(user, true));
-        Ok(bcrypt::verify(pass, creds.as_str()))
+        Ok(bcrypt::verify(pass, &creds))
     }
 
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {

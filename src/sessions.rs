@@ -99,7 +99,7 @@ impl SessionManager {
 
         let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
         if need_insert {
-            signature.token = Token::new(self.policy.salt.as_str());
+            signature.token = Token::new(&self.policy.salt);
             hashmap.insert(signature.clone(), Session::new(&signature));
         } else {
             match hashmap.get_mut(&signature) {
