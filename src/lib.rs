@@ -127,7 +127,7 @@ impl Authenticator {
     /// `user`. Does not change any signatures associated with the
     /// user.
     pub fn verify(&self, user: &str, credentials: &str) -> Result<bool, AuthError> {
-        self.backing_store.verify(user, credentials).map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.verify(user, credentials).map_err(|e| AuthError::from(e))
     }
 
     // should check policy
@@ -160,7 +160,7 @@ impl Authenticator {
         let id = signature.token.to_string();
         match self.mapping.lock() {
             Ok(mut hashmap) => hashmap.remove(&id),
-            Err(poisoned) => poisoned.into_inner().remove(&id),
+            Err(poisoned) => poisoned.into_inner().remove(&id), // XXX log this
         };
         self.sess_mgr.stop(signature);
     }
