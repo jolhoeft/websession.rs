@@ -18,10 +18,10 @@ fn main() {
     // These normally comes from something like a hyper header, but whatever
     let signature = ConnectionSignature::new("sekrit");
 
-    match authmgr.run(&signature) {
+    match authmgr.run(signature) {
         Err(e) => panic!(format!("{:?}", e)),
-        Ok(idstr) => match authmgr.login(&String::from("user"), &String::from("password"), &signature) {
-            Ok(_) => println!("Logged in with session {:?}", idstr),
+        Ok(sig) => match authmgr.login(&String::from("user"), &String::from("password"), &sig) {
+            Ok(_) => println!("Logged in with session {:?}", sig),
             Err(err) => panic!(format!("{:?}", err)),
         },
     };

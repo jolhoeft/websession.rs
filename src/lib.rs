@@ -141,7 +141,7 @@ impl Authenticator {
     // the current value for the cookie, or an error if something went
     // wrong. The returned signature may be different from the one
     // provided.
-    pub fn run(&self, signature: &ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
+    pub fn run(&self, signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
         self.sess_mgr.start(signature).map_err(|err| AuthError::from(err))
     }
 }

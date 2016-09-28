@@ -86,11 +86,10 @@ impl SessionManager {
         };
     }
 
-    pub fn start(&self, signature: &ConnectionSignature) -> Result<ConnectionSignature, SessionError> {
-        let mut new_sig = signature.clone();
-        let need_insert = match self.is_expired(signature) {
+    pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, SessionError> {
+        let need_insert = match self.is_expired(&signature) {
             Ok(true) => {
-                self.stop(signature);
+                self.stop(&signature);
                 true
             },
             Ok(false) => false,
@@ -100,15 +99,15 @@ impl SessionManager {
 
         let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
         if need_insert {
-            new_sig.token = Token::new(self.policy.salt.as_str());
-            hashmap.insert(new_sig.clone(), Session::new(&new_sig));
+            signature.token = Token::new(self.policy.salt.as_str());
+            hashmap.insert(signature.clone(), Session::new(&signature));
         } else {
-            match hashmap.get_mut(signature) {
+            match hashmap.get_mut(&signature) {
                 Some(sess) => sess.last_access = time::now().to_timespec(),
                 None => return Err(SessionError::Lost),
             }
         }
-        Ok(new_sig)
+        Ok(signature)
     }
 
     // Todo: Nickel does not give us direct access to a hyper response
