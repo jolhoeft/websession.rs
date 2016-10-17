@@ -1,3 +1,9 @@
+//! # BackingStore
+//!
+//! The BackingStore trait provides the interfaces for storing user
+//! credentials. Default implementations are provided for plain text
+//! file and in memory storage.
+
 extern crate pwhash;
 
 use std::io;
@@ -32,28 +38,43 @@ impl From<self::pwhash::error::Error> for BackingStoreError {
     }
 }
 
-// The BackingStore doesn't know about userIDs vs usernames; the consumer of
-// websessions is responsible for being able to change usernames w/o affecting
-// userIDs.
-// N.B., implementors of BackingStore provide a new that gets whatever is needed
-// to connect to the store.
+/// The BackingStore doesn't know about userIDs vs usernames; the
+/// consumer of websessions is responsible for being able to change
+/// usernames w/o affecting userIDs.
+///
+/// N.B., implementors of BackingStore provide a new that gets
+/// whatever is needed to connect to the store.
 pub trait BackingStore {
+    /// Verify the credentials for the user.
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError>;
+    /// Get the credentials for the user. For passwords, this would be
+    /// the salted hashed password.
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
+    /// Set new credentials for the user.
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
+    /// Lock the user to prevent logins. Locked users should never
+    /// verify, but the password/creentials are not cleared and can be
+    /// restored.
     fn lock(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    /// Check if the user is locked.
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError>;
+    /// Unlock the user, restoring the original password/credentials.
     fn unlock(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    /// Create a new user with the given credentials. Should return
+    /// `BackingStoreError::UserExists` if the user already exists.
     fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
+    /// Delete the user and all stored credentials and other data.
     fn delete(&mut self, user: &str) -> Result<(), BackingStoreError>;
 }
 
 #[derive(Debug)]
+/// File based backing store.
 pub struct FileBackingStore {
     filename: Mutex<String>,
 }
 
 impl FileBackingStore {
+    /// Create a new file based backing store with the given file.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
@@ -206,12 +227,15 @@ struct MemoryEntry {
     locked: bool,
 }
 
+/// In memory backing store. Does not persist across restarts. Mostly
+/// useful for testing.
 #[derive(Debug)]
 pub struct MemoryBackingStore {
     users: Mutex<HashMap<String, MemoryEntry>>,
 }
 
 impl MemoryBackingStore {
+    /// Create a new in memory backing store.
     pub fn new() -> MemoryBackingStore {
         MemoryBackingStore {
             users: Mutex::new(HashMap::new()),
