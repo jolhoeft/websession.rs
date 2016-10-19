@@ -28,6 +28,7 @@ pub use self::connectionsignature::ConnectionSignature;
 use std::collections::HashMap;
 use time::Duration;
 use std::sync::Mutex;
+use std::vec::IntoIter;
 use self::backingstore::{BackingStore, BackingStoreError};
 use self::sessions::{SessionManager, SessionError};
 pub use self::sessionpolicy::SessionPolicy;
@@ -68,6 +69,7 @@ impl From<SessionError> for AuthError {
 /// responsible for tracking session IDs, and the users associated
 /// with the ID, if any. It also provides pass through support to the
 /// [BackingStore](backingstore/index.html) for user management.
+#[derive(Debug)]
 pub struct Authenticator {
     sess_mgr: SessionManager,
     backing_store: Box<BackingStore + Send + Sync>,
@@ -144,6 +146,11 @@ impl Authenticator {
         }
     }
 
+    /// Update the users credentials, e.g. password.
+    pub fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), AuthError> {
+        self.backing_store.update_credentials(user, new_creds).map_err(|e| AuthError::BackingStore(e))
+    }
+
     // These doesn't take a ConnectionSignature because maybe we want to
     // manipulate a user other than ourself.
     /// Disable the a user's ability to login. The password will not
@@ -182,5 +189,15 @@ impl Authenticator {
     /// one provided.
     pub fn run(&self, signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
         self.sess_mgr.start(signature).map_err(|err| AuthError::from(err))
+    }
+
+    /// Return a Vec of usernames
+    pub fn users(&self) -> Result<Vec<String>, AuthError> {
+        self.backing_store.users().map_err(|e| AuthError::BackingStore(e))
+    }
+
+    /// Return an iterator over usesrs
+    pub fn users_iter(&self) -> Result<IntoIter<String>, AuthError> {
+        self.backing_store.users_iter().map_err(|e| AuthError::BackingStore(e))
     }
 }

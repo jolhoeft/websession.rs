@@ -7,12 +7,14 @@
 extern crate pwhash;
 
 use std::io;
+use std::fmt::Debug;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, BufWriter};
 use std::convert::From;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::vec::IntoIter;
 use self::pwhash::bcrypt;
 
 #[derive(Debug)]
@@ -44,13 +46,15 @@ impl From<self::pwhash::error::Error> for BackingStoreError {
 ///
 /// N.B., implementors of BackingStore provide a new that gets
 /// whatever is needed to connect to the store.
-pub trait BackingStore {
+pub trait BackingStore : Debug {
     /// Verify the credentials for the user.
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError>;
     /// Get the credentials for the user. For passwords, this would be
     /// the salted hashed password.
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
-    /// Set new credentials for the user.
+    /// Set new credentials for the user. Implementations must take
+    /// care to store credentials securely. E.g. passwords should be
+    /// properly salted and hashed.
     fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
     /// Lock the user to prevent logins. Locked users should never
     /// verify, but the password/creentials are not cleared and can be
@@ -65,6 +69,22 @@ pub trait BackingStore {
     fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
     /// Delete the user and all stored credentials and other data.
     fn delete(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    /// Return a Vec of the user names. `users_iter` may be more
+    /// appropriate when there are large numbers of users. Only one of
+    /// `users` or `users-iter` needs to be implemented. The default
+    /// implementations will take care of the other. However there may
+    /// be performace reasons to implement both.
+    fn users(&self) -> Result<Vec<String>, BackingStoreError> {
+        self.users_iter().map(|v| v.map(|u| u.clone()).collect())
+    }
+    /// Return Interator over the user names. `users` may be more
+    /// convenient when there are small numbers of users. Only one of
+    /// `users` or `users-iter` needs to be implemented. The default
+    /// implementations will take care of the other. However there may
+    /// be performace reasons to implement both.
+    fn users_iter(&self) -> Result<IntoIter<String>, BackingStoreError> {
+        self.users().map(|v| v.into_iter())
+    }
 }
 
 #[derive(Debug)]
@@ -219,6 +239,20 @@ impl BackingStore for FileBackingStore {
     fn delete(&mut self, user: &str) -> Result<(), BackingStoreError> {
         self.update_user_hash(user, None, false)
     }
+
+    fn users(&self) -> Result<Vec<String>, BackingStoreError> {
+        let mut users = Vec::new();
+        let pwfile = try!(self.load_file());
+        for line in pwfile.lines() {
+            let v: Vec<&str> = line.split(':').collect();
+            if v.len() == 0 {
+                continue;
+            } else {
+                users.push(v[0].to_string());
+            }
+        }
+        Ok(users)
+    }
 }
 
 #[derive(Debug)]
@@ -324,5 +358,10 @@ impl BackingStore for MemoryBackingStore {
             Some(_) => Ok(()),
             None => Err(BackingStoreError::NoSuchUser),
         }
+    }
+
+    fn users(&self) -> Result<Vec<String>, BackingStoreError> {
+        let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
+        Ok(hashmap.keys().map(|k| k.clone()).collect::<Vec<String>>())
     }
 }

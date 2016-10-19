@@ -39,6 +39,7 @@ impl Session {
     }
 }
 
+#[derive(Debug)]
 pub struct SessionManager {
     expiration: Duration,
     policy: SessionPolicy,
