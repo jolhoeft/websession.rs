@@ -46,6 +46,9 @@ impl From<self::pwhash::error::Error> for BackingStoreError {
 ///
 /// N.B., implementors of BackingStore provide a new that gets
 /// whatever is needed to connect to the store.
+///
+/// In general, the BackingStore will be accessed in a multi-threded
+/// environment, so Mutex or RwLock will probably be needed.
 pub trait BackingStore : Debug {
     /// Verify the credentials for the user.
     fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError>;
@@ -55,20 +58,20 @@ pub trait BackingStore : Debug {
     /// Set new credentials for the user. Implementations must take
     /// care to store credentials securely. E.g. passwords should be
     /// properly salted and hashed.
-    fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
+    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
     /// Lock the user to prevent logins. Locked users should never
     /// verify, but the password/creentials are not cleared and can be
     /// restored.
-    fn lock(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Check if the user is locked.
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError>;
     /// Unlock the user, restoring the original password/credentials.
-    fn unlock(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Create a new user with the given credentials. Should return
     /// `BackingStoreError::UserExists` if the user already exists.
-    fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
+    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
     /// Delete the user and all stored credentials and other data.
-    fn delete(&mut self, user: &str) -> Result<(), BackingStoreError>;
+    fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Return a Vec of the user names. `users_iter` may be more
     /// appropriate when there are large numbers of users. Only one of
     /// `users` or `users-iter` needs to be implemented. The default
@@ -189,11 +192,12 @@ impl BackingStore for FileBackingStore {
         Ok(bcrypt::verify(pass, &hash))
     }
 
-    fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
-        self.update_user_hash(user, Some(new_creds), true)
+    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
+        let hash = try!(bcrypt::hash(new_creds));
+        self.update_user_hash(user, Some(&hash), true)
     }
 
-    fn lock(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = try!(self.get_credentials(user, false));
         if !try!(self.hash_is_locked(&hash)) {
             hash.insert(0, '!');
@@ -208,7 +212,7 @@ impl BackingStore for FileBackingStore {
         self.hash_is_locked(&hash)
     }
 
-    fn unlock(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = try!(self.get_credentials(user, false));
         if try!(self.hash_is_locked(&hash)) {
             hash.remove(0);
@@ -218,7 +222,7 @@ impl BackingStore for FileBackingStore {
         Ok(())
     }
 
-    fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
         match self.get_credentials(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
             Err(BackingStoreError::NoSuchUser) => {
@@ -236,7 +240,7 @@ impl BackingStore for FileBackingStore {
         }
     }
 
-    fn delete(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
         self.update_user_hash(user, None, false)
     }
 
@@ -295,7 +299,7 @@ impl BackingStore for MemoryBackingStore {
         Ok(bcrypt::verify(pass, &creds))
     }
 
-    fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
+    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get_mut(user) {
             Some(entry) => match entry.locked {
@@ -310,7 +314,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn lock(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get_mut(user) {
             Some(entry) => {
@@ -329,7 +333,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn unlock(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get_mut(user) {
             Some(entry) => {
@@ -340,7 +344,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn create(&mut self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
@@ -352,7 +356,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn delete(&mut self, user: &str) -> Result<(), BackingStoreError> {
+    fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.remove(user) {
             Some(_) => Ok(()),

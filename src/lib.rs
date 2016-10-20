@@ -147,7 +147,7 @@ impl Authenticator {
     }
 
     /// Update the users credentials, e.g. password.
-    pub fn update_credentials(&mut self, user: &str, new_creds: &str) -> Result<(), AuthError> {
+    pub fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), AuthError> {
         self.backing_store.update_credentials(user, new_creds).map_err(|e| AuthError::BackingStore(e))
     }
 
@@ -155,7 +155,7 @@ impl Authenticator {
     // manipulate a user other than ourself.
     /// Disable the a user's ability to login. The password will not
     /// be changed, but all login attempts will fail.
-    pub fn lock_user(&mut self, user: &str) -> Result<(), AuthError> {
+    pub fn lock_user(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.lock(user).map_err(|e| AuthError::BackingStore(e))
     }
 
@@ -165,21 +165,21 @@ impl Authenticator {
     }
 
     /// Enable the user's account. The old password will be restored.
-    pub fn unlock(&mut self, user: &str) -> Result<(), AuthError> {
+    pub fn unlock(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.unlock(user).map_err(|e| AuthError::BackingStore(e))
     }
 
     /// Create a new user with the given credentials. The backing
     /// store is responsible for ensuring the credentials are stored
     /// securely.
-    pub fn create(&mut self, user: &str, creds: &str) -> Result<(), AuthError> {
+    pub fn create(&self, user: &str, creds: &str) -> Result<(), AuthError> {
         self.backing_store.create(user, creds).map_err(|e| AuthError::BackingStore(e))
     }
 
     /// Delete the given user. Any stored credentials will be deleted
     /// too, and will need to be provided again if the user is
     /// re-created.
-    pub fn delete(&mut self, user: &str) -> Result<(), AuthError> {
+    pub fn delete(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.delete(user).map_err(|e| AuthError::BackingStore(e))
     }
 
