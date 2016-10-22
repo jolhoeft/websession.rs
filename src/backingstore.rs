@@ -108,10 +108,16 @@ impl FileBackingStore {
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
         let name = fname.clone();
-        let mut f = try!(File::open(name));
-        let mut buf = String::new();
-        try!(f.read_to_string(&mut buf));
-        Ok(buf)
+        match File::open(name) {
+            Ok(mut f) => {
+                let mut buf = String::new();
+                match f.read_to_string(&mut buf) {
+                    Ok(_) => Ok(buf),
+                    Err(e) => Err(BackingStoreError::IO(e)),
+                }
+            },
+            Err(e) => Err(BackingStoreError::IO(e)),
+        }
     }
 
     fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
