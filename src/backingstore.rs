@@ -60,7 +60,7 @@ pub trait BackingStore : Debug {
     /// properly salted and hashed.
     fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
     /// Lock the user to prevent logins. Locked users should never
-    /// verify, but the password/creentials are not cleared and can be
+    /// verify, but the password/credentials are not cleared and can be
     /// restored.
     fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Check if the user is locked.
