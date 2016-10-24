@@ -160,7 +160,7 @@ impl Authenticator {
     }
 
     /// Check if the user's account is locked.
-    pub fn islocked(&self, user: &str) -> Result<bool, AuthError> {
+    pub fn is_locked(&self, user: &str) -> Result<bool, AuthError> {
         self.backing_store.is_locked(user).map_err(|e| AuthError::BackingStore(e))
     }
 
