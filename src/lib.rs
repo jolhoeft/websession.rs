@@ -27,6 +27,8 @@ pub use self::connectionsignature::ConnectionSignature;
 
 use std::collections::HashMap;
 use time::Duration;
+use std::error::Error;
+use std::fmt;
 use std::sync::Mutex;
 use std::vec::IntoIter;
 use self::backingstore::{BackingStore, BackingStoreError};
@@ -62,6 +64,35 @@ impl From<BackingStoreError> for AuthError {
 impl From<SessionError> for AuthError {
     fn from(err: SessionError) -> AuthError {
         AuthError::Session(err)
+    }
+}
+
+impl Error for AuthError {
+    fn description(&self) -> &str {
+        match *self {
+            AuthError::Unauthorized => "User not authorized",
+            AuthError::Expired => "Session Expired",
+            _ => "Internal Error",
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            AuthError::BackingStore(ref be) => {
+                match *be {
+                    BackingStoreError::Hash(ref e) => Some(e),
+                    BackingStoreError::IO(ref e) => Some(e),
+                    _ => None,
+                }
+            },
+            _ => None
+        }
+    }
+}
+
+impl fmt::Display for AuthError {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        write!(out, "{}", self.description())
     }
 }
 
