@@ -130,7 +130,8 @@ impl Authenticator {
     // should check policy
     /// Verify that the provided `credentials` apply to the given
     /// `user`. If they do, associate the user with the given
-    /// `signature`.
+    /// `signature`. Credentials are as provided by the user. Plain
+    /// text in the case of passwords.
     pub fn login(&self, user: &str, credentials: &str, signature: &ConnectionSignature) -> Result<(), AuthError> {
         match self.sess_mgr.is_expired(signature) {
             Ok(true) => {
@@ -177,9 +178,23 @@ impl Authenticator {
         }
     }
 
-    /// Update the users credentials, e.g. password.
-    pub fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), AuthError> {
-        self.backing_store.update_credentials(user, new_creds).map_err(|e| AuthError::BackingStore(e))
+    /// Encrypt the credentials as expected by the backing store.
+    pub fn encrypt_credentials(&self, plain_cred: &str) -> Result<String, AuthError> {
+        Ok(self.backing_store.encrypt_credentials(plain_cred)?)
+    }
+
+    /// Update the users credentials, e.g. password. Credentials
+    /// should be encrypted/hashed, or the user will not be able to
+    /// log in (and plain text will be stored in the backing store)
+    pub fn update_credentials(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
+        Ok(self.backing_store.update_credentials(user, enc_creds)?)
+    }
+
+    /// Update the users credentials, e.g. password. Expects the
+    /// credentials in plain text, which will be encrypted according
+    /// to the BackingStore's implementation.
+    pub fn update_credentials_plain(&self, user: &str, plain_creds: &str) -> Result<(), AuthError> {
+        Ok(self.backing_store.update_credentials_plain(user, plain_creds)?)
     }
 
     // These doesn't take a ConnectionSignature because maybe we want to
@@ -200,11 +215,18 @@ impl Authenticator {
         self.backing_store.unlock(user).map_err(|e| AuthError::BackingStore(e))
     }
 
-    /// Create a new user with the given credentials. The backing
-    /// store is responsible for ensuring the credentials are stored
-    /// securely.
-    pub fn create(&self, user: &str, creds: &str) -> Result<(), AuthError> {
-        self.backing_store.create(user, creds).map_err(|e| AuthError::BackingStore(e))
+    /// Create a new user with the given credentials. Credentials
+    /// should be encrypted/hashed, or the user will not be able to
+    /// log in (and plain text will be stored in the backing store)
+    pub fn create(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
+        Ok(self.backing_store.create(user, enc_creds)?)
+    }
+
+    /// Create a new user with the given credentials. Expects the
+    /// credentials in plain text, which will be encrypted according
+    /// to the BackingStore's implementation.
+    pub fn create_plain(&self, user: &str, plain_creds: &str) -> Result<(), AuthError> {
+        Ok(self.backing_store.create_plain(user, plain_creds)?)
     }
 
     /// Delete the given user. Any stored credentials will be deleted
