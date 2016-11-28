@@ -50,15 +50,29 @@ impl From<self::pwhash::error::Error> for BackingStoreError {
 /// In general, the BackingStore will be accessed in a multi-threded
 /// environment, so Mutex or RwLock will probably be needed.
 pub trait BackingStore : Debug {
-    /// Verify the credentials for the user.
-    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError>;
+    /// Encrypt unencrypted credentials. For passwords this would be a
+    /// sound hashing funtions. For some credentials, e.g. public
+    /// keys, additional encryption may be unneeded.
+    fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError>;
+    /// Verify the credentials for the user. Unencrypted passwords are
+    /// expected, as would be provided by a user logging in.
+    fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
     /// Get the credentials for the user. For passwords, this would be
     /// the salted hashed password.
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
-    /// Set new credentials for the user. Implementations must take
-    /// care to store credentials securely. E.g. passwords should be
-    /// properly salted and hashed.
-    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError>;
+    /// Set new credentials for the user. Credentials must be
+    /// encrypted by the encrypt_credentials. If unencrypted
+    /// credentials are provided, users will not be able to log in,
+    /// but plain text will be stored in the backing store, creating a
+    /// potential security issue.
+    fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
+    /// Convenience method calling encrypt_credentials and
+    /// update_credentials. The default implementation should
+    /// normally be sufficient.
+    fn update_credentials_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
+        let enc_cred = self.encrypt_credentials(plain_cred)?;
+        self.update_credentials(user, &enc_cred)
+    }
     /// Lock the user to prevent logins. Locked users should never
     /// verify, but the password/credentials are not cleared and can be
     /// restored.
@@ -68,8 +82,16 @@ pub trait BackingStore : Debug {
     /// Unlock the user, restoring the original password/credentials.
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Create a new user with the given credentials. Should return
-    /// `BackingStoreError::UserExists` if the user already exists.
-    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError>;
+    /// `BackingStoreError::UserExists` if the user already
+    /// exists. See comment about encrypted credentials under
+    /// update_credentials.
+    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
+    /// Convenience method calling encrypt_credentials and create. The
+    /// default implementation should normally be sufficient.
+    fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
+        let enc_cred = self.encrypt_credentials(plain_cred)?;
+        self.create(user, &enc_cred)
+    }
     /// Delete the user and all stored credentials and other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Return a Vec of the user names. `users_iter` may be more
@@ -202,6 +224,10 @@ impl FileBackingStore {
 }
 
 impl BackingStore for FileBackingStore {
+    fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
+        Ok(bcrypt::hash(plain)?)
+    }
+
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
         let pwfile = try!(self.load_file());
         for line in pwfile.lines() {
@@ -213,14 +239,13 @@ impl BackingStore for FileBackingStore {
         Err(BackingStoreError::NoSuchUser)
     }
 
-    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
+    fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
         let hash = try!(self.get_credentials(user, true));
-        Ok(bcrypt::verify(pass, &hash))
+        Ok(bcrypt::verify(plain_cred, &hash))
     }
 
-    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
-        let hash = try!(bcrypt::hash(new_creds));
-        self.update_user_hash(user, Some(&hash), true)
+    fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
+        self.update_user_hash(user, Some(enc_cred), true)
     }
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
@@ -248,7 +273,7 @@ impl BackingStore for FileBackingStore {
         Ok(())
     }
 
-    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         match self.get_credentials(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
             Err(BackingStoreError::NoSuchUser) => {
@@ -257,21 +282,16 @@ impl BackingStore for FileBackingStore {
                 match OpenOptions::new().append(true).open(name) {
                     Err(e) => Err(BackingStoreError::IO(e)),
                     Ok(mut f) => {
-                        match bcrypt::hash(creds) {
-                            Err(e) => Err(BackingStoreError::Hash(e)),
-                            Ok(hash) => {
-                                if let Err(e) = f.write_all(user.as_bytes()) {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(b":") {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(hash.as_bytes()) {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(b"\n") {
-                                    Err(BackingStoreError::IO(e))
-                                } else {
-                                    Ok(())
-                                }
-                            },
+                        if let Err(e) = f.write_all(user.as_bytes()) {
+                            Err(BackingStoreError::IO(e))
+                        } else if let Err(e) = f.write_all(b":") {
+                            Err(BackingStoreError::IO(e))
+                        } else if let Err(e) = f.write_all(enc_cred.as_bytes()) {
+                            Err(BackingStoreError::IO(e))
+                        } else if let Err(e) = f.write_all(b"\n") {
+                            Err(BackingStoreError::IO(e))
+                        } else {
+                            Ok(())
                         }
                     },
                 }
@@ -322,6 +342,10 @@ impl MemoryBackingStore {
 }
 
 impl BackingStore for MemoryBackingStore {
+    fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
+        Ok(bcrypt::hash(plain)?)
+    }
+
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
         let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get(user) {
@@ -334,19 +358,18 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn verify(&self, user: &str, pass: &str) -> Result<bool, BackingStoreError> {
+    fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
         let creds = try!(self.get_credentials(user, true));
-        Ok(bcrypt::verify(pass, &creds))
+        Ok(bcrypt::verify(plain_cred, &creds))
     }
 
-    fn update_credentials(&self, user: &str, new_creds: &str) -> Result<(), BackingStoreError> {
+    fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         match hashmap.get_mut(user) {
             Some(entry) => match entry.locked {
                 true => Err(BackingStoreError::Locked),
                 false => {
-                    let hash = try!(bcrypt::hash(new_creds));
-                    entry.credentials = hash.to_string();
+                    entry.credentials = enc_cred.to_string();
                     Ok(())
                 },
             },
@@ -384,19 +407,13 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
         } else {
-            match bcrypt::hash(creds) {
-                Err(e) => Err(BackingStoreError::Hash(e)),
-                Ok(hash) => {
-                    hashmap.insert(user.to_string(),
-                    MemoryEntry { credentials: hash.to_string(), locked: false, });
-                    Ok(())
-                },
-            }
+            hashmap.insert(user.to_string(), MemoryEntry { credentials: enc_cred.to_string(), locked: false, });
+            Ok(())
         }
     }
 
