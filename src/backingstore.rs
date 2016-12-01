@@ -108,16 +108,10 @@ impl FileBackingStore {
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
         let name = fname.clone();
-        match File::open(name) {
-            Ok(mut f) => {
-                let mut buf = String::new();
-                match f.read_to_string(&mut buf) {
-                    Ok(_) => Ok(buf),
-                    Err(e) => Err(BackingStoreError::IO(e)),
-                }
-            },
-            Err(e) => Err(BackingStoreError::IO(e)),
-        }
+        let mut f = try!(File::open(name));
+        let mut buf = String::new();
+        try!(f.read_to_string(&mut buf));
+        Ok(buf)
     }
 
     fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
@@ -154,44 +148,24 @@ impl FileBackingStore {
         let oldfn = fname.clone();
         let newfn = oldfn.to_string() + ".old";
         try!(fs::rename(oldfn.clone(), newfn));
-        match File::create(oldfn) {
-            Err(e) => return Err(BackingStoreError::IO(e)),
-            Ok(file) => {
-                let mut f = BufWriter::new(file);
-                for line in pwfile.lines() {
-                    match self.line_has_user(line, user, fail_if_locked) {
-                        Err(e) => return Err(e),
-                        Ok(lhu) => match lhu {
-                            Some(_) => match new_creds {
-                                Some(newhash) => {
-                                    if let Err(e) = f.write_all(user.as_bytes()) {
-                                        return Err(BackingStoreError::IO(e));
-                                    }
-                                    if let Err(e) = f.write_all(b":") {
-                                        return Err(BackingStoreError::IO(e));
-                                    }
-                                    if let Err(e) = f.write_all(newhash.as_bytes()) {
-                                        return Err(BackingStoreError::IO(e));
-                                    }
-                                    if let Err(e) = f.write_all(b"\n") {
-                                        return Err(BackingStoreError::IO(e));
-                                    }
-                                    found = true;
-                                },
-                                None => found = true, // we're deleting, don't write out
-                            },
-                            None => { // no user on this line, continue
-                                if let Err(e) = f.write_all(line.as_bytes()) {
-                                    return Err(BackingStoreError::IO(e));
-                                }
-                                if let Err(e) = f.write_all(b"\n") {
-                                    return Err(BackingStoreError::IO(e));
-                                }
-                            },
-                        },
-                    }
-                }
-            },
+        let mut f = BufWriter::new(try!(File::create(oldfn)));
+        for line in pwfile.lines() {
+            match try!(self.line_has_user(line, user, fail_if_locked)) {
+                Some(_) => match new_creds {
+                    Some(newhash) => {
+                        try!(f.write_all(user.as_bytes()));
+                        try!(f.write_all(b":"));
+                        try!(f.write_all(newhash.as_bytes()));
+                        try!(f.write_all(b"\n"));
+                        found = true;
+                    },
+                    None => found = true, // we're deleting, don't write out
+                },
+                None => { // no user on this line, continue
+                    try!(f.write_all(line.as_bytes()));
+                    try!(f.write_all(b"\n"));
+                },
+            }
         }
         if found {
             Ok(())
@@ -254,27 +228,13 @@ impl BackingStore for FileBackingStore {
             Err(BackingStoreError::NoSuchUser) => {
                 let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
                 let name = (*fname).clone();
-                match OpenOptions::new().append(true).open(name) {
-                    Err(e) => Err(BackingStoreError::IO(e)),
-                    Ok(mut f) => {
-                        match bcrypt::hash(creds) {
-                            Err(e) => Err(BackingStoreError::Hash(e)),
-                            Ok(hash) => {
-                                if let Err(e) = f.write_all(user.as_bytes()) {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(b":") {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(hash.as_bytes()) {
-                                    Err(BackingStoreError::IO(e))
-                                } else if let Err(e) = f.write_all(b"\n") {
-                                    Err(BackingStoreError::IO(e))
-                                } else {
-                                    Ok(())
-                                }
-                            },
-                        }
-                    },
-                }
+                let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(name)));
+                let hash = try!(bcrypt::hash(creds));
+                try!(f.write_all(user.as_bytes()));
+                try!(f.write_all(b":"));
+                try!(f.write_all(hash.as_bytes()));
+                try!(f.write_all(b"\n"));
+                Ok(())
             },
             Err(e) => Err(e),
         }
@@ -389,14 +349,10 @@ impl BackingStore for MemoryBackingStore {
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
         } else {
-            match bcrypt::hash(creds) {
-                Err(e) => Err(BackingStoreError::Hash(e)),
-                Ok(hash) => {
-                    hashmap.insert(user.to_string(),
-                    MemoryEntry { credentials: hash.to_string(), locked: false, });
-                    Ok(())
-                },
-            }
+            let hash = try!(bcrypt::hash(creds));
+            hashmap.insert(user.to_string(),
+                MemoryEntry { credentials: hash.to_string(), locked: false, });
+            Ok(())
         }
     }
 
