@@ -205,17 +205,17 @@ impl Authenticator {
     /// Disable the a user's ability to login. The password will not
     /// be changed, but all login attempts will fail.
     pub fn lock_user(&self, user: &str) -> Result<(), AuthError> {
-        self.backing_store.lock(user).map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.lock(user).map_err(|e| AuthError::from(e))
     }
 
     /// Check if the user's account is locked.
     pub fn is_locked(&self, user: &str) -> Result<bool, AuthError> {
-        self.backing_store.is_locked(user).map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.is_locked(user).map_err(|e| AuthError::from(e))
     }
 
     /// Enable the user's account. The old password will be restored.
     pub fn unlock(&self, user: &str) -> Result<(), AuthError> {
-        self.backing_store.unlock(user).map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.unlock(user).map_err(|e| AuthError::from(e))
     }
 
     /// Create a new user with the given credentials. Credentials
@@ -236,7 +236,7 @@ impl Authenticator {
     /// too, and will need to be provided again if the user is
     /// re-created.
     pub fn delete(&self, user: &str) -> Result<(), AuthError> {
-        self.backing_store.delete(user).map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.delete(user).map_err(|e| AuthError::from(e))
     }
 
     /// This is the main driver - it returns a signature that contains
@@ -249,11 +249,11 @@ impl Authenticator {
 
     /// Return a Vec of usernames
     pub fn users(&self) -> Result<Vec<String>, AuthError> {
-        self.backing_store.users().map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.users().map_err(|e| AuthError::from(e))
     }
 
     /// Return an iterator over usesrs
     pub fn users_iter(&self) -> Result<IntoIter<String>, AuthError> {
-        self.backing_store.users_iter().map_err(|e| AuthError::BackingStore(e))
+        self.backing_store.users_iter().map_err(|e| AuthError::from(e))
     }
 }
