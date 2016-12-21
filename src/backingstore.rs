@@ -372,14 +372,15 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
         } else {
-            let hash = try!(bcrypt::hash(creds));
-            hashmap.insert(user.to_string(),
-                MemoryEntry { credentials: hash.to_string(), locked: false, });
+            hashmap.insert(user.to_string(), MemoryEntry {
+                credentials: enc_cred.to_string(),
+                locked: false,
+            });
             Ok(())
         }
     }
