@@ -247,17 +247,16 @@ impl BackingStore for FileBackingStore {
         Ok(())
     }
 
-    fn create(&self, user: &str, creds: &str) -> Result<(), BackingStoreError> {
+    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         match self.get_credentials(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
             Err(BackingStoreError::NoSuchUser) => {
                 let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
                 let name = (*fname).clone();
                 let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(name)));
-                let hash = try!(bcrypt::hash(creds));
                 try!(f.write_all(user.as_bytes()));
                 try!(f.write_all(b":"));
-                try!(f.write_all(hash.as_bytes()));
+                try!(f.write_all(enc_cred.as_bytes()));
                 try!(f.write_all(b"\n"));
                 Ok(())
             },
