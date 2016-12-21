@@ -123,7 +123,10 @@ impl Authenticator {
         }
     }
 
-    fn verify(&self, user: &str, credentials: &str) -> Result<bool, AuthError> {
+    /// Verify that the provided `credentials` apply to the given
+    /// `user`. Does not change any signatures associated with the
+    /// user.
+    pub fn verify(&self, user: &str, credentials: &str) -> Result<bool, AuthError> {
         self.backing_store.verify(user, credentials).map_err(|e| AuthError::BackingStore(e))
     }
 
