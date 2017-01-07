@@ -221,8 +221,8 @@ impl Authenticator {
     /// Create a new user with the given credentials. Credentials
     /// should be encrypted/hashed, or the user will not be able to
     /// log in (and plain text will be stored in the backing store)
-    pub fn create(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
-        Ok(self.backing_store.create(user, enc_creds)?)
+    pub fn create_preencrypted(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
+        Ok(self.backing_store.create_preencrypted(user, enc_creds)?)
     }
 
     /// Create a new user with the given credentials. Expects the

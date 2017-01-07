@@ -85,12 +85,12 @@ pub trait BackingStore : Debug {
     /// `BackingStoreError::UserExists` if the user already
     /// exists. See comment about encrypted credentials under
     /// update_credentials.
-    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
-    /// Convenience method calling encrypt_credentials and create. The
+    fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
+    /// Convenience method calling encrypt_credentials and create_preencrypted. The
     /// default implementation should normally be sufficient.
     fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
-        self.create(user, &enc_cred)
+        self.create_preencrypted(user, &enc_cred)
     }
     /// Delete the user and all stored credentials and other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
@@ -247,7 +247,7 @@ impl BackingStore for FileBackingStore {
         Ok(())
     }
 
-    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
+    fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         match self.get_credentials(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
             Err(BackingStoreError::NoSuchUser) => {
@@ -371,7 +371,7 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 
-    fn create(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
+    fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
