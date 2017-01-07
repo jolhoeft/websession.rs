@@ -4,11 +4,11 @@
 //! credentials. Default implementations are provided for plain text
 //! file and in memory storage.
 
+extern crate libc;
 extern crate pwhash;
 
-use std::io;
+use std::{io, fs};
 use std::fmt::Debug;
-use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, BufWriter};
 use std::convert::From;
@@ -16,6 +16,18 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::vec::IntoIter;
 use self::pwhash::bcrypt;
+
+macro_rules! try_locked (
+    ($e:expr, $f:ident) => (match $e {
+        Ok(val) => val,
+        Err(err) => {
+            try!(fs::remove_file($f));
+            return Err(::std::convert::From::from(err));
+        },
+    });
+);
+
+const LOCKSUFFIX: &'static str = ".lock";
 
 #[derive(Debug)]
 pub enum BackingStoreError {
@@ -26,6 +38,7 @@ pub enum BackingStoreError {
     IO(io::Error),
     Mutex,
     Hash(self::pwhash::error::Error),
+    FileLocked,
 }
 
 impl From<io::Error> for BackingStoreError {
@@ -127,12 +140,18 @@ impl FileBackingStore {
         }
     }
 
+    // it would be nice if we allowed retries and/or sleep times, but that
+    // breaks the API
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
         let name = fname.clone();
-        let mut f = try!(File::open(name));
+        let lockname = name.clone() + LOCKSUFFIX;
         let mut buf = String::new();
-        try!(f.read_to_string(&mut buf));
+        try!(self.make_lockfile(&lockname));
+
+        let mut f = try_locked!(File::open(name), lockname);
+        try_locked!(f.read_to_string(&mut buf), lockname);
+        try!(fs::remove_file(lockname));
         Ok(buf)
     }
 
@@ -158,6 +177,23 @@ impl FileBackingStore {
         match chars.next() {
             Some(c) => Ok(c == '!'),
             None => Err(BackingStoreError::MissingData),
+        }
+    }
+
+    // creates a file with the pid in it, or tries its best to remove it
+    fn make_lockfile(&self, filename: &String) -> Result<(), io::Error> {
+        let mut lockfile = try!(OpenOptions::new().write(true).create_new(true)
+            .open(filename.clone()));
+        // I would like this to be a try_locked! but it won't work because
+        // write! looks to try_locked! as (), not Result ... not sure why
+        // unsafe is needed because libc is marking getpid as unsafe even though
+        // it appears on all relevant platforms
+        match writeln!(lockfile, "{}", unsafe { libc::getpid() }) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                try!(fs::remove_file(filename));
+                Err(e)
+            },
         }
     }
 
@@ -253,11 +289,14 @@ impl BackingStore for FileBackingStore {
             Err(BackingStoreError::NoSuchUser) => {
                 let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
                 let name = (*fname).clone();
-                let mut f = BufWriter::new(try!(OpenOptions::new().append(true).open(name)));
-                try!(f.write_all(user.as_bytes()));
-                try!(f.write_all(b":"));
-                try!(f.write_all(enc_cred.as_bytes()));
-                try!(f.write_all(b"\n"));
+                let lockname = name.clone() + LOCKSUFFIX;
+                try!(self.make_lockfile(&lockname));
+                let mut f = BufWriter::new(try_locked!(OpenOptions::new().append(true).open(name), lockname));
+                try_locked!(f.write_all(user.as_bytes()), lockname);
+                try_locked!(f.write_all(b":"), lockname);
+                try_locked!(f.write_all(enc_cred.as_bytes()), lockname);
+                try_locked!(f.write_all(b"\n"), lockname);
+                try!(fs::remove_file(lockname));
                 Ok(())
             },
             Err(e) => Err(e),
