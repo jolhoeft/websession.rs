@@ -181,7 +181,7 @@ impl FileBackingStore {
     }
 
     // creates a file with the pid in it, or tries its best to remove it
-    fn make_lockfile(&self, filename: &String) -> Result<(), io::Error> {
+    fn make_lockfile(&self, filename: &str) -> Result<(), io::Error> {
         let mut lockfile = try!(OpenOptions::new().write(true).create_new(true)
             .open(filename.clone()));
         try_locked!(writeln!(lockfile, "{}", unsafe { libc::getpid() })
