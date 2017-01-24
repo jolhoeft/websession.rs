@@ -88,8 +88,8 @@ pub trait BackingStore : Debug {
     /// exists. See comment about encrypted credentials under
     /// update_credentials.
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
-    /// Convenience method calling encrypt_credentials and create_preencrypted. The
-    /// default implementation should normally be sufficient.
+    /// Convenience method calling encrypt_credentials and create_preencrypted.
+    /// The default implementation should normally be sufficient.
     fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.create_preencrypted(user, &enc_cred)
@@ -257,21 +257,29 @@ impl BackingStore for FileBackingStore {
     }
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        match self.get_credentials(user, false) {
-            Ok(_) => Err(BackingStoreError::UserExists),
-            Err(BackingStoreError::NoSuchUser) => {
-                let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-                let name = (*fname).clone();
-                let file = OpenOptions::new().append(true).open(name)?;
-                file.lock_exclusive()?;
-                let mut f = BufWriter::new(file);
-                f.write_all(user.as_bytes())?;
-                f.write_all(b":")?;
-                f.write_all(enc_cred.as_bytes())?;
-                f.write_all(b"\n")?;
-                Ok(())
-            },
-            Err(e) => Err(e),
+        // The FileBackingStore uses a : delimiter, so : in usernames or
+        // passwords is bad.
+        if user.find(':').is_some() {
+            Err(BackingStoreError::NoSuchUser)
+        } else if enc_cred.find(':').is_some() {
+            Err(BackingStoreError::MissingData)
+        } else {
+            match self.get_credentials(user, false) {
+                Ok(_) => Err(BackingStoreError::UserExists),
+                Err(BackingStoreError::NoSuchUser) => {
+                    let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
+                    let name = (*fname).clone();
+                    let file = OpenOptions::new().append(true).open(name)?;
+                    file.lock_exclusive()?;
+                    let mut f = BufWriter::new(file);
+                    f.write_all(user.as_bytes())?;
+                    f.write_all(b":")?;
+                    f.write_all(enc_cred.as_bytes())?;
+                    f.write_all(b"\n")?;
+                    Ok(())
+                },
+                Err(e) => Err(e),
+            }
         }
     }
 
