@@ -6,6 +6,7 @@
 
 extern crate libc;
 extern crate pwhash;
+extern crate fs2;
 
 use std::{io, fs};
 use std::fmt::Debug;
@@ -16,18 +17,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::vec::IntoIter;
 use self::pwhash::bcrypt;
-
-macro_rules! try_locked (
-    ($e:expr, $f:ident) => (match $e {
-        Ok(val) => val,
-        Err(err) => {
-            try!(fs::remove_file($f));
-            return Err(::std::convert::From::from(err));
-        },
-    });
-);
-
-const LOCKSUFFIX: &'static str = ".lock";
+use self::fs2::FileExt;
 
 #[derive(Debug)]
 pub enum BackingStoreError {
@@ -38,7 +28,6 @@ pub enum BackingStoreError {
     IO(io::Error),
     Mutex,
     Hash(self::pwhash::error::Error),
-    FileLocked,
 }
 
 impl From<io::Error> for BackingStoreError {
@@ -143,15 +132,12 @@ impl FileBackingStore {
     // it would be nice if we allowed retries and/or sleep times, but that
     // breaks the API
     fn load_file(&self) -> Result<String, BackingStoreError> {
-        let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
+        let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let name = fname.clone();
-        let lockname = name.clone() + LOCKSUFFIX;
         let mut buf = String::new();
-        try!(self.make_lockfile(&lockname));
-
-        let mut f = try_locked!(File::open(name), lockname);
-        try_locked!(f.read_to_string(&mut buf), lockname);
-        try!(fs::remove_file(lockname));
+        let mut f = File::open(name)?;
+        f.lock_shared()?;
+        f.read_to_string(&mut buf)?;
         Ok(buf)
     }
 
@@ -180,48 +166,37 @@ impl FileBackingStore {
         }
     }
 
-    // creates a file with the pid in it, or tries its best to remove it
-    fn make_lockfile(&self, filename: &str) -> Result<(), io::Error> {
-        let mut lockfile = try!(OpenOptions::new().write(true).create_new(true)
-            .open(filename.clone()));
-        try_locked!(writeln!(lockfile, "{}", unsafe { libc::getpid() })
-            .map(|x| Ok(x)), filename)
-    }
-
     // We're intentionally ignoring \r\n under Windows; we're the consumer too.
     fn update_user_hash(&self, user: &str, new_creds: Option<&str>, fail_if_locked: bool) -> Result<(), BackingStoreError> {
         let mut found = false;
-        let pwfile = try!(self.load_file());
+        let pwfile = self.load_file()?;
 
-        let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
+        let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let oldfn = fname.clone();
         let newfn = oldfn.to_string() + ".old";
 
-        let lockname = oldfn.clone() + LOCKSUFFIX;
-        try!(self.make_lockfile(&lockname));
-
-        try_locked!(fs::rename(oldfn.clone(), newfn), lockname);
-        // XXX modes
-        let mut f = BufWriter::new(try_locked!(File::create(oldfn), lockname));
+        fs::rename(oldfn.clone(), newfn)?; // XXX modes
+        let file = File::create(oldfn)?;
+        file.lock_exclusive()?;
+        let mut f = BufWriter::new(file);
         for line in pwfile.lines() {
-            match try_locked!(self.line_has_user(line, user, fail_if_locked), lockname) {
+            match try!(self.line_has_user(line, user, fail_if_locked)) {
                 Some(_) => match new_creds {
                     Some(newhash) => {
-                        try_locked!(f.write_all(user.as_bytes()), lockname);
-                        try_locked!(f.write_all(b":"), lockname);
-                        try_locked!(f.write_all(newhash.as_bytes()), lockname);
-                        try_locked!(f.write_all(b"\n"), lockname);
+                        f.write_all(user.as_bytes())?;
+                        f.write_all(b":")?;
+                        f.write_all(newhash.as_bytes())?;
+                        f.write_all(b"\n")?;
                         found = true;
                     },
                     None => found = true, // we're deleting, don't write out
                 },
                 None => { // no user on this line, continue
-                    try_locked!(f.write_all(line.as_bytes()), lockname);
-                    try_locked!(f.write_all(b"\n"), lockname);
+                    f.write_all(line.as_bytes())?;
+                    f.write_all(b"\n")?;
                 },
             }
         }
-        try!(fs::remove_file(lockname));
 
         if found {
             Ok(())
@@ -285,16 +260,15 @@ impl BackingStore for FileBackingStore {
         match self.get_credentials(user, false) {
             Ok(_) => Err(BackingStoreError::UserExists),
             Err(BackingStoreError::NoSuchUser) => {
-                let fname = try!(self.filename.lock().map_err(|_| BackingStoreError::Mutex));
+                let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
                 let name = (*fname).clone();
-                let lockname = name.clone() + LOCKSUFFIX;
-                try!(self.make_lockfile(&lockname));
-                let mut f = BufWriter::new(try_locked!(OpenOptions::new().append(true).open(name), lockname));
-                try_locked!(f.write_all(user.as_bytes()), lockname);
-                try_locked!(f.write_all(b":"), lockname);
-                try_locked!(f.write_all(enc_cred.as_bytes()), lockname);
-                try_locked!(f.write_all(b"\n"), lockname);
-                try!(fs::remove_file(lockname));
+                let file = OpenOptions::new().append(true).open(name)?;
+                file.lock_exclusive()?;
+                let mut f = BufWriter::new(file);
+                f.write_all(user.as_bytes())?;
+                f.write_all(b":")?;
+                f.write_all(enc_cred.as_bytes())?;
+                f.write_all(b"\n")?;
                 Ok(())
             },
             Err(e) => Err(e),

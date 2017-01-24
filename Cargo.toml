@@ -10,3 +10,4 @@ uuid = { version = "0.2", features = [ "serde", "v4" ] }
 libc = "0.2"
 time = "0.1"
 rust-crypto = "^0.2"
+fs2 = "0.4"
