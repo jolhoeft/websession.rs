@@ -142,13 +142,11 @@ impl FileBackingStore {
     }
 
     fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
-        let v: Vec<&str> = line.split(':').collect();
-        if v.len() < 1 {
+        let v: Vec<&str> = line.splitn(2, ':').collect();
+        if v.len() < 2 { // it's not okay for users to have empty passwords
             Err(BackingStoreError::MissingData)
         } else if v[0] == user {
-            if v.len() != 2 {
-                Err(BackingStoreError::MissingData)
-            } else if fail_if_locked && try!(self.hash_is_locked(v[1])) {
+            if fail_if_locked && try!(self.hash_is_locked(v[1])) {
                 Err(BackingStoreError::Locked)
             } else {
                 Ok(Some(v[1].to_string()))
@@ -257,12 +255,9 @@ impl BackingStore for FileBackingStore {
     }
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        // The FileBackingStore uses a : delimiter, so : in usernames or
-        // passwords is bad.
+        // The FileBackingStore uses a : delimiter, so : in usernames is bad.
         if user.find(':').is_some() {
             Err(BackingStoreError::NoSuchUser)
-        } else if enc_cred.find(':').is_some() {
-            Err(BackingStoreError::MissingData)
         } else {
             match self.get_credentials(user, false) {
                 Ok(_) => Err(BackingStoreError::UserExists),
