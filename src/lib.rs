@@ -153,7 +153,8 @@ impl Authenticator {
                 Ok(false) => Err(AuthError::Unauthorized),
                 Err(e) => Err(e),
             },
-            Err(e) => Err(AuthError::Session(e)),
+            Err(SessionError::Mutex) => Err(AuthError::Mutex),
+            Err(e) => Err(AuthError::Session(e)), // impossible
         }
     }
 
@@ -177,10 +178,8 @@ impl Authenticator {
                     .map(|s| s.clone())), // this is to unborrow the username
                 Err(_) => Err(AuthError::Mutex),
             },
-            Err(e) => match e {
-                SessionError::Lost => Ok(None),
-                _ => Err(AuthError::Session(e)),
-            },
+            Err(SessionError::Mutex) => Err(AuthError::Mutex),
+            Err(e) => Err(AuthError::Session(e)), // impossible
         }
     }
 

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug)]
 pub enum SessionError {
@@ -68,44 +68,42 @@ impl SessionManager {
     // }
 
     pub fn is_expired(&self, signature: &ConnectionSignature) -> Result<bool, SessionError> {
-        let hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
-        match hashmap.get(signature) {
-            Some(sess) => if (time::now().to_timespec() - sess.last_access) >= self.expiration {
-                Ok(true)
-            } else {
-                Ok(false)
-            },
-            None => Err(SessionError::Lost),
-        }
+        let mut hashmap = self.sessions.lock().map_err(|_| SessionError::Mutex)?;
+        Ok(self.is_expired_locked(signature, &mut hashmap))
+    }
+
+    fn is_expired_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> bool {
+        let rv = match hashmap.get(signature) {
+            Some(sess) => (time::now().to_timespec() - sess.last_access) >= self.expiration,
+            None => true
+        };
+        self.stop_locked(&signature, hashmap);
+        rv
+    }
+
+    fn stop_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> Option<Session> {
+        hashmap.remove(signature)
     }
 
     // This has the same caveats as stop_all_sessions; should it be a Result?
     pub fn stop(&self, signature: &ConnectionSignature) {
         match self.sessions.lock() {
-            Ok(mut hashmap) => hashmap.remove(signature),
+            Ok(mut hashmap) => self.stop_locked(signature, &mut hashmap),
             Err(poisoned) => poisoned.into_inner().remove(signature),
         };
     }
 
     pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, SessionError> {
-        let need_insert = match self.is_expired(&signature) {
-            Ok(true) => {
-                self.stop(&signature);
-                true
-            },
-            Ok(false) => false,
-            Err(SessionError::Lost) => true, // this just means it's new
-            Err(e) => return Err(e),
-        };
+        let mut hashmap = self.sessions.lock().map_err(|_| SessionError::Mutex)?;
+        let need_insert = self.is_expired_locked(&signature, &mut hashmap);
 
-        let mut hashmap = try!(self.sessions.lock().map_err(|_| SessionError::Mutex));
         if need_insert {
             signature.token = Token::new(&self.policy.salt);
             hashmap.insert(signature.clone(), Session::new(&signature));
         } else {
             match hashmap.get_mut(&signature) {
                 Some(sess) => sess.last_access = time::now().to_timespec(),
-                None => return Err(SessionError::Lost),
+                None => return Err(SessionError::Lost), // this should be impossible
             }
         }
         Ok(signature)
