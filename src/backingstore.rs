@@ -411,3 +411,20 @@ impl BackingStore for MemoryBackingStore {
         Ok(hashmap.keys().map(|k| k.clone()).collect::<Vec<String>>())
     }
 }
+
+#[cfg(test)]
+mod test {
+    extern crate tempdir;
+
+    use backingstore::{BackingStore, FileBackingStore};
+
+    /// Tests that usernames with : in them are illegal for the FileBackingStore
+    #[test]
+    fn colons_in_usernames() {
+        let tempdir = tempdir::TempDir::new("fbs").unwrap();
+        let pathopt = tempdir.path().join("fbs");
+        let path = pathopt.to_str().unwrap();
+        let fbs = FileBackingStore::new(&path);
+        assert_eq!(fbs.create_plain("bad:user", "password").is_err(), true);
+    }
+}
