@@ -16,6 +16,9 @@ extern crate time;
 extern crate uuid;
 #[cfg(feature = "hyper")]
 extern crate hyper;
+extern crate crypto;
+extern crate pwhash;
+extern crate fs2;
 
 pub mod sessions;
 pub mod backingstore;

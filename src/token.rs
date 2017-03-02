@@ -4,8 +4,8 @@ extern crate crypto;
 use uuid::Uuid;
 use std::fmt;
 use std::ops::Deref;
-use self::crypto::digest::Digest;
-use self::crypto::sha2::Sha256;
+use crypto::digest::Digest;
+use crypto::sha2::Sha256;
 
 #[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {

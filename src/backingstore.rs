@@ -16,8 +16,8 @@ use std::convert::From;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::vec::IntoIter;
-use self::pwhash::bcrypt;
-use self::fs2::FileExt;
+use pwhash::bcrypt;
+use fs2::FileExt;
 
 #[derive(Debug)]
 pub enum BackingStoreError {
