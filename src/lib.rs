@@ -31,7 +31,7 @@ pub use self::connectionsignature::ConnectionSignature;
 use std::collections::HashMap;
 use time::Duration;
 use std::error::Error;
-use std::fmt;
+use std::{fmt, io};
 use std::sync::Mutex;
 use std::vec::IntoIter;
 use self::backingstore::{BackingStore, BackingStoreError};
@@ -47,9 +47,9 @@ pub enum AuthError {
     /// Internal error, mutex is poisoned
     Mutex,
     /// Internal error in the backing store
-    BackingStore(BackingStoreError),
-    /// Internal error in the session manager 
-    Session(SessionError),
+    IO(io::Error),
+    Hash(pwhash::error::Error),
+    MissingData,
 }
 
 impl From<BackingStoreError> for AuthError {
@@ -58,15 +58,20 @@ impl From<BackingStoreError> for AuthError {
             BackingStoreError::NoSuchUser => AuthError::Unauthorized,
             BackingStoreError::Locked => AuthError::Unauthorized,
             BackingStoreError::UserExists => AuthError::Unauthorized,
-            // not sure what else we can trap
-            _ => AuthError::BackingStore(err),
+            BackingStoreError::Mutex => AuthError::Mutex,
+            BackingStoreError::IO(i) => AuthError::IO(i),
+            BackingStoreError::Hash(h) => AuthError::Hash(h),
+            BackingStoreError::MissingData => AuthError::MissingData,
         }
     }
 }
 
 impl From<SessionError> for AuthError {
     fn from(err: SessionError) -> AuthError {
-        AuthError::Session(err)
+        match err {
+            SessionError::Lost => AuthError::Expired,
+            SessionError::Mutex => AuthError::Mutex,
+        }
     }
 }
 
@@ -75,19 +80,16 @@ impl Error for AuthError {
         match *self {
             AuthError::Unauthorized => "User not authorized",
             AuthError::Expired => "Session Expired",
+            AuthError::IO(ref err) => err.description(),
+            AuthError::Hash(ref err) => err.description(),
             _ => "Internal Error",
         }
     }
 
     fn cause(&self) -> Option<&Error> {
         match *self {
-            AuthError::BackingStore(ref be) => {
-                match *be {
-                    BackingStoreError::Hash(ref e) => Some(e),
-                    BackingStoreError::IO(ref e) => Some(e),
-                    _ => None,
-                }
-            },
+            AuthError::Hash(ref e) => Some(e),
+            AuthError::IO(ref e) => Some(e),
             _ => None
         }
     }
@@ -153,8 +155,7 @@ impl Authenticator {
                 Ok(false) => Err(AuthError::Unauthorized),
                 Err(e) => Err(e),
             },
-            Err(SessionError::Mutex) => Err(AuthError::Mutex),
-            Err(e) => Err(AuthError::Session(e)), // impossible
+            Err(e) => Err(From::from(e)),
         }
     }
 
@@ -179,7 +180,7 @@ impl Authenticator {
                 Err(_) => Err(AuthError::Mutex),
             },
             Err(SessionError::Mutex) => Err(AuthError::Mutex),
-            Err(e) => Err(AuthError::Session(e)), // impossible
+            Err(SessionError::Lost) => Err(AuthError::Expired), // impossible
         }
     }
 

@@ -15,11 +15,7 @@ use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug)]
 pub enum SessionError {
-    //Unauthorized,
-    //BadSignature,
-    //Expired,
     Lost,
-    // BackingStore(BackingStoreError),
     Mutex,
 }
 

@@ -27,7 +27,7 @@ pub enum BackingStoreError {
     UserExists,
     IO(io::Error),
     Mutex,
-    Hash(self::pwhash::error::Error),
+    Hash(pwhash::error::Error),
 }
 
 impl From<io::Error> for BackingStoreError {
@@ -36,8 +36,8 @@ impl From<io::Error> for BackingStoreError {
     }
 }
 
-impl From<self::pwhash::error::Error> for BackingStoreError {
-    fn from(err: self::pwhash::error::Error) -> BackingStoreError {
+impl From<pwhash::error::Error> for BackingStoreError {
+    fn from(err: pwhash::error::Error) -> BackingStoreError {
         BackingStoreError::Hash(err)
     }
 }
