@@ -35,7 +35,7 @@ use std::{fmt, io};
 use std::sync::Mutex;
 use std::vec::IntoIter;
 use self::backingstore::{BackingStore, BackingStoreError};
-use self::sessions::{SessionManager, SessionError};
+use self::sessions::SessionManager;
 pub use self::sessionpolicy::SessionPolicy;
 
 #[derive(Debug)]
@@ -50,6 +50,7 @@ pub enum AuthError {
     IO(io::Error),
     Hash(pwhash::error::Error),
     MissingData,
+    InternalConsistency,
 }
 
 impl From<BackingStoreError> for AuthError {
@@ -62,15 +63,6 @@ impl From<BackingStoreError> for AuthError {
             BackingStoreError::IO(i) => AuthError::IO(i),
             BackingStoreError::Hash(h) => AuthError::Hash(h),
             BackingStoreError::MissingData => AuthError::MissingData,
-        }
-    }
-}
-
-impl From<SessionError> for AuthError {
-    fn from(err: SessionError) -> AuthError {
-        match err {
-            SessionError::Lost => AuthError::Expired,
-            SessionError::Mutex => AuthError::Mutex,
         }
     }
 }
@@ -179,8 +171,7 @@ impl Authenticator {
                     .map(|s| s.clone())), // this is to unborrow the username
                 Err(_) => Err(AuthError::Mutex),
             },
-            Err(SessionError::Mutex) => Err(AuthError::Mutex),
-            Err(SessionError::Lost) => Err(AuthError::Expired), // impossible
+            Err(e) => Err(e),
         }
     }
 

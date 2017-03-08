@@ -8,16 +8,11 @@ use token::Token;
 use sessionpolicy::SessionPolicy;
 use time::{Timespec, Duration};
 use std::collections::HashMap;
+use AuthError;
 
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
 use std::sync::{Mutex, MutexGuard};
-
-#[derive(Debug)]
-pub enum SessionError {
-    Lost,
-    Mutex,
-}
 
 #[derive(Debug)]
 struct Session {
@@ -63,8 +58,8 @@ impl SessionManager {
     //     }
     // }
 
-    pub fn is_expired(&self, signature: &ConnectionSignature) -> Result<bool, SessionError> {
-        let mut hashmap = self.sessions.lock().map_err(|_| SessionError::Mutex)?;
+    pub fn is_expired(&self, signature: &ConnectionSignature) -> Result<bool, AuthError> {
+        let mut hashmap = self.sessions.lock().map_err(|_| AuthError::Mutex)?;
         Ok(self.is_expired_locked(signature, &mut hashmap))
     }
 
@@ -89,8 +84,8 @@ impl SessionManager {
         };
     }
 
-    pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, SessionError> {
-        let mut hashmap = self.sessions.lock().map_err(|_| SessionError::Mutex)?;
+    pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
+        let mut hashmap = self.sessions.lock().map_err(|_| AuthError::Mutex)?;
         let need_insert = self.is_expired_locked(&signature, &mut hashmap);
 
         if need_insert {
@@ -99,7 +94,7 @@ impl SessionManager {
         } else {
             match hashmap.get_mut(&signature) {
                 Some(sess) => sess.last_access = time::now().to_timespec(),
-                None => return Err(SessionError::Lost), // this should be impossible
+                None => return Err(AuthError::InternalConsistency), // this should be impossible
             }
         }
         Ok(signature)
@@ -121,30 +116,32 @@ impl SessionManager {
 
 /*
     // Session data methods
-    pub fn get_data(&self, key: &str) -> Result<Option<String>, SessionError> {
+    pub fn get_data(&self, key: &str) -> Result<Option<String>, AuthError> {
         panic!("Not implemented!");
     }
 
     // Session data methods
-    pub fn set_data(&self, key: &str, value: &str) -> Result<(), SessionError> {
+    pub fn set_data(&self, key: &str, value: &str) -> Result<(), AuthError> {
         panic!("Not implemented!");
     }
 
     // Session data methods
-    pub fn get_persistant_data(&self, key: &str) -> Result<Option<String>, SessionError> {
+    pub fn get_persistant_data(&self, key: &str) -> Result<Option<String>, AuthError> {
         panic!("Not implemented!");
     }
 
     // Session data methods
-    pub fn set_persistant_data(&self, key: &str, value: &str) -> Result<(), SessionError> {
+    pub fn set_persistant_data(&self, key: &str, value: &str) -> Result<(), AuthError> {
         panic!("Not implemented!");
     }
 }
 */
 
+/*
 #[cfg(test)]
 mod tests {
     #[test]
     fn it_works() {
     }
 }
+*/
