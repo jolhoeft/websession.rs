@@ -65,10 +65,15 @@ impl SessionManager {
 
     fn is_expired_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> bool {
         let rv = match hashmap.get(signature) {
-            Some(sess) => (time::now().to_timespec() - sess.last_access) >= self.expiration,
+            Some(sess) => {
+                (time::now().to_timespec() - sess.last_access) >= self.expiration
+            }
             None => true
         };
-        self.stop_locked(&signature, hashmap);
+        if rv {
+            self.stop_locked(&signature, hashmap);
+        }
+        debug!("is_expired about to return {}", rv);
         rv
     }
 
