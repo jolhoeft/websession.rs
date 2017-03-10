@@ -11,6 +11,7 @@ libc = "0.2"
 time = "0.1"
 rust-crypto = "^0.2"
 fs2 = "0.4"
+log = "0.3"
 
 [dev-dependencies]
 tempdir = "0.3"

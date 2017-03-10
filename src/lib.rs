@@ -19,6 +19,7 @@ extern crate hyper;
 extern crate crypto;
 extern crate pwhash;
 extern crate fs2;
+#[macro_use] extern crate log;
 
 pub mod sessions;
 pub mod backingstore;
