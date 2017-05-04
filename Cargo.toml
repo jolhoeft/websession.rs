@@ -6,7 +6,7 @@ authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bstern@kukaret.com>"
 [dependencies]
 hyper = { version = "0.9", optional = true }
 pwhash = "^0.1"
-uuid = { version = "0.4", features = [ "serde", "v4" ] }
+uuid = { version = "0.5", features = [ "serde", "v4" ] }
 libc = "0.2"
 time = "0.1"
 rust-crypto = "^0.2"
