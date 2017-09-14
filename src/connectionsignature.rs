@@ -17,7 +17,7 @@ impl ConnectionSignature {
     }
 
     pub fn new_from_policy(policy: &SessionPolicy) -> ConnectionSignature {
-        ConnectionSignature {token: Token::new(&policy.salt)}
+        ConnectionSignature { token: Token::new(&policy.salt) }
     }
 
     pub fn get_token(&self) -> Token {
