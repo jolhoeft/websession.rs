@@ -416,15 +416,44 @@ impl BackingStore for MemoryBackingStore {
 mod test {
     extern crate tempdir;
 
-    use backingstore::{BackingStore, FileBackingStore};
+    use backingstore::{BackingStore, FileBackingStore, BackingStoreError};
+    use std::fs::File;
 
     /// Tests that usernames with : in them are illegal for the FileBackingStore
     #[test]
     fn colons_in_usernames() {
-        let tempdir = tempdir::TempDir::new("fbs").unwrap();
-        let pathopt = tempdir.path().join("fbs");
-        let path = pathopt.to_str().unwrap();
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let _f = File::create(path);
         let fbs = FileBackingStore::new(&path);
-        assert_eq!(fbs.create_plain("bad:user", "password").is_err(), true);
+
+        assert_eq!(fbs.create_plain("bad:user", "password"),
+            Err(BackingStoreError::NoSuchUser));
+    }
+
+    #[test]
+    fn create_user_plain() {
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let _f = File::create(path);
+        let fbs = FileBackingStore::new(&path);
+
+        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
+    }
+
+    /// Tests that locked usernames cannot authenticate
+    #[test]
+    fn can_locked_login() {
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let _f = File::create(path);
+        let fbs = FileBackingStore::new(&path);
+
+        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
+        assert_eq!(fbs.lock("user").is_ok(), true);
+        assert_eq!(fbs.verify("user", "password").is_err(), true);
     }
 }
