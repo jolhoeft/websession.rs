@@ -30,6 +30,22 @@ pub enum BackingStoreError {
     Hash(pwhash::error::Error),
 }
 
+impl PartialEq for BackingStoreError {
+    fn eq(&self, other: &BackingStoreError) -> bool {
+        let rv = match (self, other) {
+            (&BackingStoreError::NoSuchUser,  &BackingStoreError::NoSuchUser) => true,
+            (&BackingStoreError::MissingData, &BackingStoreError::MissingData) => true,
+            (&BackingStoreError::Locked,      &BackingStoreError::Locked) => true,
+            (&BackingStoreError::UserExists,  &BackingStoreError::UserExists) => true,
+            (&BackingStoreError::IO(_),       &BackingStoreError::IO(_)) => true,
+            (&BackingStoreError::Mutex,       &BackingStoreError::Mutex) => true,
+            (&BackingStoreError::Hash(_),     &BackingStoreError::Hash(_)) => true,
+            _ => false,
+        };
+        rv
+    }
+}
+
 impl From<io::Error> for BackingStoreError {
     fn from(err: io::Error) -> BackingStoreError {
         BackingStoreError::IO(err)
@@ -416,7 +432,7 @@ impl BackingStore for MemoryBackingStore {
 mod test {
     extern crate tempdir;
 
-    use backingstore::{BackingStore, FileBackingStore, BackingStoreError};
+    use backingstore::{BackingStore, FileBackingStore};
     use std::fs::File;
 
     /// Tests that usernames with : in them are illegal for the FileBackingStore
@@ -428,8 +444,7 @@ mod test {
         let _f = File::create(path);
         let fbs = FileBackingStore::new(&path);
 
-        assert_eq!(fbs.create_plain("bad:user", "password"),
-            Err(BackingStoreError::NoSuchUser));
+        assert_eq!(fbs.create_plain("bad:user", "password").is_err(), true);
     }
 
     #[test]
