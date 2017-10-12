@@ -32,17 +32,16 @@ pub enum BackingStoreError {
 
 impl PartialEq for BackingStoreError {
     fn eq(&self, other: &BackingStoreError) -> bool {
-        let rv = match (self, other) {
-            (&BackingStoreError::NoSuchUser,  &BackingStoreError::NoSuchUser) => true,
-            (&BackingStoreError::MissingData, &BackingStoreError::MissingData) => true,
-            (&BackingStoreError::Locked,      &BackingStoreError::Locked) => true,
-            (&BackingStoreError::UserExists,  &BackingStoreError::UserExists) => true,
-            (&BackingStoreError::IO(_),       &BackingStoreError::IO(_)) => true,
-            (&BackingStoreError::Mutex,       &BackingStoreError::Mutex) => true,
-            (&BackingStoreError::Hash(_),     &BackingStoreError::Hash(_)) => true,
+        match (self, other) {
+            (&BackingStoreError::NoSuchUser, &BackingStoreError::NoSuchUser) |
+            (&BackingStoreError::MissingData, &BackingStoreError::MissingData) |
+            (&BackingStoreError::Locked, &BackingStoreError::Locked) |
+            (&BackingStoreError::UserExists, &BackingStoreError::UserExists) |
+            (&BackingStoreError::IO(_), &BackingStoreError::IO(_)) |
+            (&BackingStoreError::Mutex, &BackingStoreError::Mutex) |
+            (&BackingStoreError::Hash(_), &BackingStoreError::Hash(_)) => true,
             _ => false,
-        };
-        rv
+        }
     }
 }
 
@@ -58,76 +57,78 @@ impl From<pwhash::error::Error> for BackingStoreError {
     }
 }
 
-/// The BackingStore doesn't know about userIDs vs usernames; the
-/// consumer of websessions is responsible for being able to change
-/// usernames w/o affecting userIDs.
+/// The BackingStore doesn't know about user-IDs vs usernames: the consumer of
+/// websessions is responsible for being able to change usernames w/o affecting
+/// user-IDs.
 ///
-/// N.B., implementors of BackingStore provide a new that gets
-/// whatever is needed to connect to the store.
+/// N.B., implementors of BackingStore provide a `new` that gets whatever is
+/// needed to connect to the store.
 ///
-/// In general, the BackingStore will be accessed in a multi-threded
+/// In general, the BackingStore will be accessed in a multi-threaded
 /// environment, so Mutex or RwLock will probably be needed.
 pub trait BackingStore : Debug {
-    /// Encrypt unencrypted credentials. For passwords this would be a
-    /// sound hashing funtions. For some credentials, e.g. public
-    /// keys, additional encryption may be unneeded.
+    /// Encrypt unencrypted credentials.  For passwords, this would be a sound
+    /// hashing function.  For some credentials, such as public keys, additional
+    /// encryption may be unneeded.
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError>;
-    /// Verify the credentials for the user. Unencrypted passwords are
-    /// expected, as would be provided by a user logging in.
+    /// Verify the credentials for the user.  Unencrypted passwords are
+    /// expected, such as would be provided by a user logging in.
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
-    /// Get the credentials for the user. For passwords, this would be
-    /// the salted hashed password.
+    /// Get the credentials for the user. For passwords, this would be the
+    /// salted hashed password.
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
-    /// Set new credentials for the user. Credentials must be
-    /// encrypted by the encrypt_credentials. If unencrypted
-    /// credentials are provided, users will not be able to log in,
-    /// but plain text will be stored in the backing store, creating a
-    /// potential security issue.
+    /// Set new credentials for the user.  Credentials must be encrypted by
+    /// `encrypt_credentials`.  If unencrypted credentials are provided, users
+    /// will not be able to log in, and plain text will be stored in the backing
+    /// store, creating a potential security issue.
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
-    /// Convenience method calling encrypt_credentials and
-    /// update_credentials. The default implementation should
-    /// normally be sufficient.
+    /// Convenience method, calling encrypt_credentials and update_credentials.
+    /// The default implementation should normally be sufficient.
     fn update_credentials_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.update_credentials(user, &enc_cred)
     }
-    /// Lock the user to prevent logins. Locked users should never
-    /// verify, but the password/credentials are not cleared and can be
-    /// restored.
+    /// Lock the user to prevent logins.  Locked users should never verify, but
+    /// the password/credentials are not cleared and can be restored.
     fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Check if the user is locked.
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError>;
     /// Unlock the user, restoring the original password/credentials.
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
-    /// Create a new user with the given credentials. Should return
-    /// `BackingStoreError::UserExists` if the user already
-    /// exists. See comment about encrypted credentials under
-    /// update_credentials.
+    /// Create a new user with the given credentials.  Should return
+    /// `BackingStoreError::UserExists` if the user already exists. See the
+    /// comment about encrypted credentials under `update_credentials`.
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
-    /// Convenience method calling encrypt_credentials and create_preencrypted.
-    /// The default implementation should normally be sufficient.
+    /// Convenience method calling `encrypt_credentials` and
+    /// `create_preencrypted`.  The default implementation should normally be
+    /// sufficient.
     fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.create_preencrypted(user, &enc_cred)
     }
-    /// Delete the user and all stored credentials and other data.
+    /// Delete the user, all stored credentials, and any other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
-    /// Return a Vec of the user names. `users_iter` may be more
-    /// appropriate when there are large numbers of users. Only one of
-    /// `users` or `users-iter` needs to be implemented. The default
-    /// implementations will take care of the other. However there may
-    /// be performace reasons to implement both.
+    /// Return a Vec of the user names. `users_iter` may be more appropriate
+    /// when there are large numbers of users.  Only one of `users` or
+    /// `users_iter` needs to be implemented, as the default implementations
+    /// will take care of the other.  However, there may be performance reasons
+    /// to implement both.
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         self.users_iter().map(|v| v.map(|u| u.clone()).collect())
     }
-    /// Return Interator over the user names. `users` may be more
-    /// convenient when there are small numbers of users. Only one of
-    /// `users` or `users-iter` needs to be implemented. The default
-    /// implementations will take care of the other. However there may
-    /// be performace reasons to implement both.
+    /// Return an Iterator over the user names.  `users` may be more convenient
+    /// when there are small numbers of users.  Only one of `users` or
+    /// `users_iter` needs to be implemented, as the default implementations
+    /// will take care of the other.  However, there may be performance reasons
+    /// to implement both.
     fn users_iter(&self) -> Result<IntoIter<String>, BackingStoreError> {
         self.users().map(|v| v.into_iter())
     }
+    /// Return whether or not the user already exists in the backing store.  May
+    /// return a `BackingStoreError`, in particular,
+    /// `BackingStoreError::Locked`, which means the user exists but the account
+    /// is locked.
+    fn check_user(&self, user: &str) -> Result<bool, BackingStoreError>;
 }
 
 #[derive(Debug)]
@@ -137,7 +138,8 @@ pub struct FileBackingStore {
 }
 
 impl FileBackingStore {
-    /// Create a new file based backing store with the given file.
+    /// Create a new file based backing store with the given file.  The file
+    /// already exist, and have appropriate permissions.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
@@ -145,8 +147,9 @@ impl FileBackingStore {
         }
     }
 
-    // it would be nice if we allowed retries and/or sleep times, but that
-    // breaks the API
+    // It would be nice if we allowed retries and/or sleep times, but that
+    // breaks the API.  Right now, let's go with "worse is better" and force the
+    // caller to manage this.
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let name = fname.clone();
@@ -246,7 +249,7 @@ impl BackingStore for FileBackingStore {
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = try!(self.get_credentials(user, false));
-        if !try!(self.hash_is_locked(&hash)) {
+        if !self.hash_is_locked(&hash)? {
             hash.insert(0, '!');
             return self.update_user_hash(user, Some(&hash), false);
         }
@@ -261,7 +264,7 @@ impl BackingStore for FileBackingStore {
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = try!(self.get_credentials(user, false));
-        if try!(self.hash_is_locked(&hash)) {
+        if self.hash_is_locked(&hash)? {
             hash.remove(0);
             return self.update_user_hash(user, Some(&hash), false);
         }
@@ -299,7 +302,7 @@ impl BackingStore for FileBackingStore {
 
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         let mut users = Vec::new();
-        let pwfile = try!(self.load_file());
+        let pwfile = self.load_file()?;
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
             if v.len() == 0 {
@@ -309,6 +312,22 @@ impl BackingStore for FileBackingStore {
             }
         }
         Ok(users)
+    }
+
+    fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
+        let pwfile = self.load_file()?;
+        for line in pwfile.lines() {
+            let v: Vec<&str> = line.split(':').collect();
+            if v.len() > 1 {
+                if v[0] == user {
+                    return match self.hash_is_locked(v[1])? {
+                        true => Err(BackingStoreError::Locked),
+                        false => Ok(true),
+                    };
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -435,7 +454,8 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
-        let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
+        let mut hashmap = self.users.lock().map_err(|_|
+            BackingStoreError::Mutex)?;
         match hashmap.remove(user) {
             Some(_) => Ok(()),
             None => Err(BackingStoreError::NoSuchUser),
@@ -443,25 +463,41 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
-        let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
+        let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         Ok(hashmap.keys().map(|k| k.clone()).collect::<Vec<String>>())
+    }
+
+    fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
+        let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        if let Some(u) = hashmap.get(user) {
+            match u.locked {
+                true => Err(BackingStoreError::Locked),
+                false => Ok(true),
+            }
+        } else {
+            Ok(false)
+        }
     }
 }
 
 // Note that these tests do not set permissions on the (temporary) password
 // files and use hardcoded passwords which are visible in both plaintext and in
 // ciphertext.  Good practices dictate minimizing the read permissions on the
-// password file and not storing the password anywhere else, in plaintext or
-// ciphertext.
+// production password file and not storing the password anywhere else, in
+// plaintext or ciphertext.
 #[cfg(test)]
 mod test {
     extern crate tempdir;
 
-    use backingstore::{BackingStore, FileBackingStore, MemoryBackingStore};
+    use backingstore::*;
     use std::fs::File;
     use std::io::Write;
 
-    /// Tests that usernames with : in them are illegal for the FileBackingStore
+    /// Tests that usernames with `:` in them are illegal for the
+    /// `FileBackingStore`.  This concern is specific to the implementation of
+    /// the `FileBackingStore`, which uses `:` as a delimiter, but is also
+    /// carried across to the `MemoryBackingStore` to provide a simple
+    /// conversion path from the latter to the former.
     #[test]
     fn fbs_colons_in_usernames() {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
@@ -473,6 +509,11 @@ mod test {
         assert_eq!(fbs.create_plain("bad:user", "password").is_err(), true);
     }
 
+    /// Tests that usernames with `:` in them are illegal for the
+    /// `MemoryBackingStore`.  This concern is specific to the implementation of
+    /// the `FileBackingStore`, which uses `:` as a delimiter, but is also
+    /// carried across to the `MemoryBackingStore` to provide a simple
+    /// conversion path from the latter to the former.
     #[test]
     fn mbs_colons_in_usernames() {
         let mbs = MemoryBackingStore::new();
@@ -496,7 +537,7 @@ mod test {
         assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
     }
 
-    /// Tests that locked users cannot authenticate to the FileBackingStore
+    /// Tests that locked users cannot authenticate to the `FileBackingStore`.
     #[test]
     fn fbs_can_locked_login() {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
@@ -510,7 +551,7 @@ mod test {
         assert_eq!(fbs.verify("user", "password").is_err(), true);
     }
 
-    /// Tests that locked users cannot authenticate to the MemoryBackingStore
+    /// Tests that locked users cannot authenticate to the `MemoryBackingStore`.
     #[test]
     fn mbs_can_locked_login() {
         let mbs = MemoryBackingStore::new();
@@ -540,5 +581,32 @@ mod test {
         assert_eq!(f.unwrap().write_all(line.as_bytes()).is_err(), false);
         let fbs = FileBackingStore::new(&path);
         assert_eq!(fbs.verify("user", "password").is_err(), false);
+    }
+
+    #[test]
+    fn fbs_check_user() {
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let _f = File::create(path);
+        let fbs = FileBackingStore::new(&path);
+
+        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
+        assert_eq!(fbs.check_user("user").is_ok(), true);
+        assert_eq!(fbs.check_user("user"), Ok(true));
+        assert_eq!(fbs.check_user("missing"), Ok(false));
+        assert_eq!(fbs.lock("user").is_ok(), true);
+        assert_eq!(fbs.check_user("user"), Err(BackingStoreError::Locked));
+    }
+
+    #[test]
+    fn mbs_check_user() {
+        let mbs = MemoryBackingStore::new();
+        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
+        assert_eq!(mbs.check_user("user").is_ok(), true);
+        assert_eq!(mbs.check_user("user"), Ok(true));
+        assert_eq!(mbs.check_user("missing"), Ok(false));
+        assert_eq!(mbs.lock("user").is_ok(), true);
+        assert_eq!(mbs.check_user("user"), Err(BackingStoreError::Locked));
     }
 }

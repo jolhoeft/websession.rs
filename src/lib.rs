@@ -3,15 +3,14 @@
 
 //! # Websession
 //!
-//! Websession provides session and user support for web
-//! applications. It provides support for storing user information in
-//! a plain text file or in memory. Implement the
-//! [BackingStore](backingstore/index.html) trait to support other
-//! storage, such as a database.
+//! Websession provides session and user support for web applications.  It
+//! provides support for storing user information in a plain text file or in
+//! memory.  Implement the [BackingStore](backingstore/index.html) trait to
+//! support other storage, such as a database.
 //!
 //! ## Example
 //!
-//! Todo: working example here
+//! See the tests for examples of use.
 extern crate time;
 extern crate uuid;
 #[cfg(feature = "hyper")]
@@ -152,8 +151,8 @@ impl Authenticator {
         }
     }
 
-    /// Remove any assocation of a user to the given `signature`, and
-    /// remove the session.
+    /// Remove any association of a user to the given `signature`, and remove
+    /// the session.
     pub fn logout(&self, signature: &ConnectionSignature) {
         let id = signature.token.to_string();
         match self.mapping.lock() {
@@ -163,7 +162,7 @@ impl Authenticator {
         self.sess_mgr.stop(signature);
     }
 
-    /// Get the `user` associate with the session, if any.
+    /// Get the `user` associated with the session, if any.
     pub fn get_user(&self, signature: &ConnectionSignature) -> Result<Option<String>, AuthError> {
         match self.sess_mgr.is_expired(signature) {
             Ok(true) => Err(AuthError::Expired),
@@ -181,24 +180,24 @@ impl Authenticator {
         Ok(self.backing_store.encrypt_credentials(plain_cred)?)
     }
 
-    /// Update the users credentials, e.g. password. Credentials
-    /// should be encrypted/hashed, or the user will not be able to
-    /// log in (and plain text will be stored in the backing store)
+    /// Update the user's credentials, e.g. password.  Credentials should
+    /// already be encrypted/hashed, or the user will not be able to log in (and
+    /// plain text will be stored in the backing store).
     pub fn update_credentials(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
         Ok(self.backing_store.update_credentials(user, enc_creds)?)
     }
 
-    /// Update the users credentials, e.g. password. Expects the
-    /// credentials in plain text, which will be encrypted according
-    /// to the BackingStore's implementation.
+    /// Update the user's credentials, e.g. password.  Credentials should be in
+    /// plain text, which will then be encrypted according to the BackingStore's
+    /// implementation.
     pub fn update_credentials_plain(&self, user: &str, plain_creds: &str) -> Result<(), AuthError> {
         Ok(self.backing_store.update_credentials_plain(user, plain_creds)?)
     }
 
     // These doesn't take a ConnectionSignature because maybe we want to
     // manipulate a user other than ourself.
-    /// Disable the a user's ability to login. The password will not
-    /// be changed, but all login attempts will fail.
+    /// Disable a user's ability to login.  The password will not be changed,
+    /// but all login attempts will fail.
     pub fn lock_user(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.lock(user).map_err(|e| AuthError::from(e))
     }
@@ -208,47 +207,52 @@ impl Authenticator {
         self.backing_store.is_locked(user).map_err(|e| AuthError::from(e))
     }
 
-    /// Enable the user's account. The old password will be restored.
+    /// Re-enable the user's account.  The old password will remain valid.
     pub fn unlock(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.unlock(user).map_err(|e| AuthError::from(e))
     }
 
-    /// Create a new user with the given credentials. Credentials
-    /// should be encrypted/hashed, or the user will not be able to
-    /// log in (and plain text will be stored in the backing store)
+    /// Create a new user with the given credentials.  Credentials should
+    /// already be encrypted/hashed, or the user will not be able to log in
+    /// (and plain text will be stored in the backing store).
     pub fn create_preencrypted(&self, user: &str, enc_creds: &str) -> Result<(), AuthError> {
         Ok(self.backing_store.create_preencrypted(user, enc_creds)?)
     }
 
-    /// Create a new user with the given credentials. Expects the
-    /// credentials in plain text, which will be encrypted according
-    /// to the BackingStore's implementation.
+    /// Create a new user with the given credentials.  Credentials should be in
+    /// plain text, which will then be encrypted according to the BackingStore's
+    /// implementation.
     pub fn create_plain(&self, user: &str, plain_creds: &str) -> Result<(), AuthError> {
         Ok(self.backing_store.create_plain(user, plain_creds)?)
     }
 
-    /// Delete the given user. Any stored credentials will be deleted
-    /// too, and will need to be provided again if the user is
-    /// re-created.
+    /// Delete the given user.  Any stored credentials will be deleted too, and
+    /// will need to be provided again if the user is later re-created.
     pub fn delete(&self, user: &str) -> Result<(), AuthError> {
         self.backing_store.delete(user).map_err(|e| AuthError::from(e))
     }
 
-    /// This is the main driver - it returns a signature that contains
-    /// the current value for the cookie, or an error if something
-    /// went wrong. The returned signature may be different from the
-    /// one provided.
+    /// This is the main driver.  It returns a signature that contains the
+    /// current value for the cookie, or an error if something went wrong.  The
+    /// returned signature may be different from the one provided.
     pub fn run(&self, signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
         self.sess_mgr.start(signature).map_err(|err| AuthError::from(err))
     }
 
-    /// Return a Vec of usernames
+    /// Return a Vec of usernames.
     pub fn users(&self) -> Result<Vec<String>, AuthError> {
         self.backing_store.users().map_err(|e| AuthError::from(e))
     }
 
-    /// Return an iterator over usesrs
+    /// Return an iterator over users.
     pub fn users_iter(&self) -> Result<IntoIter<String>, AuthError> {
         self.backing_store.users_iter().map_err(|e| AuthError::from(e))
+    }
+
+    /// Identify whether or not the user already exists in the backing store.
+    /// May return an `AuthError````, in particular, `AuthError::Locked`, which
+    /// means that the user exists but the account is locked.
+    pub fn check_user(&self, user: &str) -> Result<bool, AuthError> {
+        self.backing_store.check_user(user).map_err(|e| AuthError::from(e))
     }
 }
