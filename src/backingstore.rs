@@ -180,7 +180,6 @@ impl FileBackingStore {
         }
     }
 
-    // We're intentionally ignoring \r\n under Windows; we're the consumer too.
     fn update_user_hash(&self, user: &str, new_creds: Option<&str>, fail_if_locked: bool) -> Result<(), BackingStoreError> {
         let mut found = false;
         let pwfile = self.load_file()?;
@@ -194,7 +193,7 @@ impl FileBackingStore {
         file.lock_exclusive()?;
         let mut f = BufWriter::new(file);
         for line in pwfile.lines() {
-            match try!(self.line_has_user(line, user, fail_if_locked)) {
+            match self.line_has_user(line, user, fail_if_locked)? {
                 Some(_) => match new_creds {
                     Some(newhash) => {
                         f.write_all(user.as_bytes())?;
@@ -333,6 +332,24 @@ impl MemoryBackingStore {
             users: Mutex::new(HashMap::new()),
         }
     }
+
+    /// Exports the contents in a format suitable for a FileBackingStore to use,
+    /// if it is then written to disk as a file with suitable permissions.
+    pub fn export_as_fbs(&self) -> Result<String, BackingStoreError> {
+        let mut rv = String::new();
+        let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        for (key, val) in hashmap.iter() {
+            rv += key;
+            rv.push(':');
+            if val.locked {
+                rv.push('!');
+            }
+            // Since we're the consumer, we don't have to care about \n vs \r\n.
+            rv += &val.credentials;
+            rv.push('\n');
+        }
+        Ok(rv)
+    }
 }
 
 impl BackingStore for MemoryBackingStore {
@@ -341,7 +358,7 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
-        let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
+        let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         match hashmap.get(user) {
             Some(entry) => if !(fail_if_locked && entry.locked) {
                 Ok(entry.credentials.to_string())
@@ -353,12 +370,13 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
-        let creds = try!(self.get_credentials(user, true));
+        let creds = self.get_credentials(user, true)?;
         Ok(bcrypt::verify(plain_cred, &creds))
     }
 
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
+        let mut hashmap =
+            self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         match hashmap.get_mut(user) {
             Some(entry) => match entry.locked {
                 true => Err(BackingStoreError::Locked),
@@ -405,6 +423,8 @@ impl BackingStore for MemoryBackingStore {
         let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
         if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
+        } else if user.find(':').is_some() { // maintain compatibility with FBS
+            Err(BackingStoreError::NoSuchUser)
         } else {
             hashmap.insert(user.to_string(), MemoryEntry {
                 credentials: enc_cred.to_string(),
@@ -428,16 +448,22 @@ impl BackingStore for MemoryBackingStore {
     }
 }
 
+// Note that these tests do not set permissions on the (temporary) password
+// files and use hardcoded passwords which are visible in both plaintext and in
+// ciphertext.  Good practices dictate minimizing the read permissions on the
+// password file and not storing the password anywhere else, in plaintext or
+// ciphertext.
 #[cfg(test)]
 mod test {
     extern crate tempdir;
 
-    use backingstore::{BackingStore, FileBackingStore};
+    use backingstore::{BackingStore, FileBackingStore, MemoryBackingStore};
     use std::fs::File;
+    use std::io::Write;
 
     /// Tests that usernames with : in them are illegal for the FileBackingStore
     #[test]
-    fn colons_in_usernames() {
+    fn fbs_colons_in_usernames() {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
@@ -448,7 +474,13 @@ mod test {
     }
 
     #[test]
-    fn create_user_plain() {
+    fn mbs_colons_in_usernames() {
+        let mbs = MemoryBackingStore::new();
+        assert_eq!(mbs.create_plain("bad:user", "password").is_err(), true);
+    }
+
+    #[test]
+    fn fbs_create_user_plain() {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
@@ -458,9 +490,15 @@ mod test {
         assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
     }
 
-    /// Tests that locked usernames cannot authenticate
     #[test]
-    fn can_locked_login() {
+    fn mbs_create_user_plain() {
+        let mbs = MemoryBackingStore::new();
+        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
+    }
+
+    /// Tests that locked users cannot authenticate to the FileBackingStore
+    #[test]
+    fn fbs_can_locked_login() {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
@@ -470,5 +508,37 @@ mod test {
         assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
         assert_eq!(fbs.lock("user").is_ok(), true);
         assert_eq!(fbs.verify("user", "password").is_err(), true);
+    }
+
+    /// Tests that locked users cannot authenticate to the MemoryBackingStore
+    #[test]
+    fn mbs_can_locked_login() {
+        let mbs = MemoryBackingStore::new();
+        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
+        assert_eq!(mbs.verify("user", "password").is_err(), false);
+        assert_eq!(mbs.lock("user").is_ok(), true);
+        assert_eq!(mbs.verify("user", "password").is_err(), true);
+    }
+
+    #[test]
+    fn mbs_export() {
+        let mbs = MemoryBackingStore::new();
+        let password = String::from("$2b$08$LOru0WKGEf49Pn26QuFC7OPIYyihiFNNjr0DBzWkLNj/rq8cg3sgq");
+        let line = String::from("user:") + &password + "\n";
+        assert_eq!(mbs.create_preencrypted("user", &password).is_ok(), true);
+        assert_eq!(mbs.verify("user", "password").is_err(), false);
+        let output = mbs.export_as_fbs();
+        assert_eq!(output.is_err(), false);
+        assert_eq!(output.unwrap(), line);
+
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let f = File::create(path);
+        // Once we've gotten here, line and output are the same, but I gave
+        // output away in the assert_eq! that proved it.
+        assert_eq!(f.unwrap().write_all(line.as_bytes()).is_err(), false);
+        let fbs = FileBackingStore::new(&path);
+        assert_eq!(fbs.verify("user", "password").is_err(), false);
     }
 }
