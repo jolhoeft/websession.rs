@@ -12,7 +12,7 @@ fn main() {
     let policy = SessionPolicy::new("console");
 
     let authmgr = Authenticator::new(
-	    Box::new(FileBackingStore::new("../../data/passwd")),
+	    Box::new(FileBackingStore::new("data/passwd")),
         Duration::seconds(3600), policy);
 
     // These normally comes from something like a hyper header, but whatever
