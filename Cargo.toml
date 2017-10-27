@@ -1,6 +1,6 @@
 [package]
 name = "websession"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bas-github@bstern.org>"]
 description = "Web Session Support for Rust"
 license = "MIT/Apache-2.0"
@@ -15,6 +15,16 @@ time = "0.1"
 rust-crypto = "^0.2"
 fs2 = "0.4"
 log = "0.3"
+clap = "2.27"
+rpassword = "2.0"
 
 [dev-dependencies]
 tempdir = "0.3"
+
+[lib]
+name = "websession"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ws_mgr"
+path = "src/ws_mgr.rs"
