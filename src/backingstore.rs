@@ -162,9 +162,10 @@ impl FileBackingStore {
 
     fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
+        let fixed_user = user.replace("\n", "\u{FFFD}");
         if v.len() < 2 { // it's not okay for users to have empty passwords
             Err(BackingStoreError::MissingData)
-        } else if v[0] == user {
+        } else if v[0] == fixed_user {
             if fail_if_locked && try!(self.hash_is_locked(v[1])) {
                 Err(BackingStoreError::Locked)
             } else {
@@ -196,10 +197,11 @@ impl FileBackingStore {
         file.lock_exclusive()?;
         let mut f = BufWriter::new(file);
         for line in pwfile.lines() {
+            // line_has_user corrects \n to \u{FFFD}
             match self.line_has_user(line, user, fail_if_locked)? {
                 Some(_) => match new_creds {
                     Some(newhash) => {
-                        f.write_all(user.as_bytes())?;
+                        f.write_all(user.replace("\n", "\u{FFFD}").as_bytes())?;
                         f.write_all(b":")?;
                         f.write_all(newhash.as_bytes())?;
                         f.write_all(b"\n")?;
@@ -207,7 +209,7 @@ impl FileBackingStore {
                     },
                     None => found = true, // we're deleting, don't write out
                 },
-                None => { // no user on this line, continue
+                None => { // wrong user on this line, continue
                     f.write_all(line.as_bytes())?;
                     f.write_all(b"\n")?;
                 },
@@ -228,29 +230,34 @@ impl BackingStore for FileBackingStore {
     }
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
-        let pwfile = try!(self.load_file());
+        let pwfile = self.load_file()?;
         for line in pwfile.lines() {
-            match try!(self.line_has_user(line, user, fail_if_locked)) {
-                Some(hash) => return Ok(hash),
-                None => { }, // keep looking
+            // line_has_user corrects \n to \u{FFFD}
+            if let Some(hash) = self.line_has_user(line, user, fail_if_locked)? {
+                return Ok(hash);
             }
+            // otherwise keep looking
         }
         Err(BackingStoreError::NoSuchUser)
     }
 
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
-        let hash = try!(self.get_credentials(user, true));
+        // get_credentials corrects \n to \u{FFFD}
+        let hash = self.get_credentials(user, true)?;
         Ok(bcrypt::verify(plain_cred, &hash))
     }
 
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
+        // update_user_hash corrects \n to \u{FFFD}
         self.update_user_hash(user, Some(enc_cred), true)
     }
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
-        let mut hash = try!(self.get_credentials(user, false));
+        // get_credentials corrects \n to \u{FFFD}
+        let mut hash = self.get_credentials(user, false)?;
         if !self.hash_is_locked(&hash)? {
             hash.insert(0, '!');
+            // update_user_hash corrects \n to \u{FFFD}
             return self.update_user_hash(user, Some(&hash), false);
         }
         // not an error to lock a locked user
@@ -258,14 +265,17 @@ impl BackingStore for FileBackingStore {
     }
 
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
-        let hash = try!(self.get_credentials(user, false));
+        // get_credentials corrects \n to \u{FFFD}
+        let hash = self.get_credentials(user, false)?;
         self.hash_is_locked(&hash)
     }
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
-        let mut hash = try!(self.get_credentials(user, false));
+        // get_credentials corrects \n to \u{FFFD}
+        let mut hash = self.get_credentials(user, false)?;
         if self.hash_is_locked(&hash)? {
             hash.remove(0);
+            // update_user_hash corrects \n to \u{FFFD}
             return self.update_user_hash(user, Some(&hash), false);
         }
         // not an error to unlock an unlocked user
@@ -277,6 +287,7 @@ impl BackingStore for FileBackingStore {
         if user.find(':').is_some() {
             Err(BackingStoreError::NoSuchUser)
         } else {
+            // get_credentials corrects \n to \u{FFFD}
             match self.get_credentials(user, false) {
                 Ok(_) => Err(BackingStoreError::UserExists),
                 Err(BackingStoreError::NoSuchUser) => {
@@ -285,7 +296,7 @@ impl BackingStore for FileBackingStore {
                     let file = OpenOptions::new().append(true).open(name)?;
                     file.lock_exclusive()?;
                     let mut f = BufWriter::new(file);
-                    f.write_all(user.as_bytes())?;
+                    f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
                     f.write_all(b":")?;
                     f.write_all(enc_cred.as_bytes())?;
                     f.write_all(b"\n")?;
@@ -319,7 +330,7 @@ impl BackingStore for FileBackingStore {
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
             if v.len() > 1 {
-                if v[0] == user {
+                if v[0] == user.replace("\n", "\u{FFFD}") {
                     return match self.hash_is_locked(v[1])? {
                         true => Err(BackingStoreError::Locked),
                         false => Ok(true),
@@ -378,7 +389,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get(user) {
+        match hashmap.get(&user.replace("\n", "\u{FFFD}")) {
             Some(entry) => if !(fail_if_locked && entry.locked) {
                 Ok(entry.credentials.to_string())
             } else {
@@ -396,7 +407,7 @@ impl BackingStore for MemoryBackingStore {
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap =
             self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get_mut(user) {
+        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
             Some(entry) => match entry.locked {
                 true => Err(BackingStoreError::Locked),
                 false => {
@@ -409,8 +420,8 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
-        let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
-        match hashmap.get_mut(user) {
+        let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
             Some(entry) => {
                 entry.locked = true;
                 Ok(())
@@ -420,16 +431,16 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
-        let hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
-        match hashmap.get(user) {
+        let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        match hashmap.get(&user.replace("\n", "\u{FFFD}")) {
             Some(entry) => Ok(entry.locked),
             None => Err(BackingStoreError::NoSuchUser),
         }
     }
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
-        let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
-        match hashmap.get_mut(user) {
+        let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
             Some(entry) => {
                 entry.locked = false;
                 Ok(())
@@ -439,13 +450,14 @@ impl BackingStore for MemoryBackingStore {
     }
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        let mut hashmap = try!(self.users.lock().map_err(|_| BackingStoreError::Mutex));
-        if hashmap.contains_key(user) {
+        let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
+        let fixed_user = &user.replace("\n", "\u{FFFD}"); // compatibility FBS
+        if hashmap.contains_key(fixed_user) {
             Err(BackingStoreError::UserExists)
-        } else if user.find(':').is_some() { // maintain compatibility with FBS
+        } else if fixed_user.find(':').is_some() { // maintain compatibility with FBS
             Err(BackingStoreError::NoSuchUser)
         } else {
-            hashmap.insert(user.to_string(), MemoryEntry {
+            hashmap.insert(fixed_user.to_string(), MemoryEntry {
                 credentials: enc_cred.to_string(),
                 locked: false,
             });
@@ -456,7 +468,7 @@ impl BackingStore for MemoryBackingStore {
     fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_|
             BackingStoreError::Mutex)?;
-        match hashmap.remove(user) {
+        match hashmap.remove(&user.replace("\n", "\u{FFFD}")) {
             Some(_) => Ok(()),
             None => Err(BackingStoreError::NoSuchUser),
         }
@@ -469,7 +481,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        if let Some(u) = hashmap.get(user) {
+        if let Some(u) = hashmap.get(&user.replace("\n", "\u{FFFD}")) {
             match u.locked {
                 true => Err(BackingStoreError::Locked),
                 false => Ok(true),
@@ -608,5 +620,29 @@ mod test {
         assert_eq!(mbs.check_user("missing"), Ok(false));
         assert_eq!(mbs.lock("user").is_ok(), true);
         assert_eq!(mbs.check_user("user"), Err(BackingStoreError::Locked));
+    }
+
+    #[test]
+    fn fbs_check_newline() {
+        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+        let tp = fullpath.path().join("fbs");
+        let path = tp.to_str().unwrap();
+        let _f = File::create(path);
+        let fbs = FileBackingStore::new(&path);
+
+        assert_eq!(fbs.create_plain("user\nname", "password").is_ok(), true);
+        assert_eq!(fbs.check_user("user\nname").is_ok(), true);
+        assert_eq!(fbs.check_user("user\nname"), Ok(true));
+        assert_eq!(fbs.check_user("user\u{FFFD}name"), Ok(true));
+    }
+
+    #[test]
+    fn mbs_check_newline() {
+        let mbs = MemoryBackingStore::new();
+
+        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
+        assert_eq!(mbs.check_user("user\nname").is_ok(), true);
+        assert_eq!(mbs.check_user("user\nname"), Ok(true));
+        assert_eq!(mbs.check_user("user\u{FFFD}name"), Ok(true));
     }
 }

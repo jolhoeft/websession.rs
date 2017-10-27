@@ -105,9 +105,9 @@ impl SessionManager {
         Ok(signature)
     }
 
-    // Todo: Nickel does not give us direct access to a hyper response
-    // object. We need to figure out a clean way of setting the
-    // cookie, ideally w/o requiring Nickel to be compiled in.
+    // TODO: Nickel does not give us direct access to a hyper response object.
+    // We need to figure out a clean way of setting the cookie, ideally w/o
+    // requiring Nickel to be compiled in.
 
     // Should this fail if the mutex blew up?
     // It's not supposed to break anyway.
