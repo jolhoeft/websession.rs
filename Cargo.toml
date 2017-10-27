@@ -5,6 +5,7 @@ authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bas-github@bstern.or
 description = "Web Session Support for Rust"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/jolhoeft/websession.rs/"
+exclude = ["data/passwd.old"]
 
 [dependencies]
 hyper = { version = "0.10", optional = true }
