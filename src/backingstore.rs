@@ -19,6 +19,13 @@ use std::vec::IntoIter;
 use pwhash::bcrypt;
 use fs2::FileExt;
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+
 #[derive(Debug)]
 pub enum BackingStoreError {
     NoSuchUser,
@@ -139,7 +146,7 @@ pub struct FileBackingStore {
 
 impl FileBackingStore {
     /// Create a new file based backing store with the given file.  The file
-    /// already exist, and have appropriate permissions.
+    /// must already exist, and is assumed to have appropriate permissions.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
@@ -160,13 +167,45 @@ impl FileBackingStore {
         Ok(buf)
     }
 
-    fn line_has_user(&self, line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
+#[cfg(unix)]
+    // Assumes it already called with the filename locked.
+    fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
+        let perms = {
+            let f = File::open(basename.clone())?;
+            let p = f.metadata()?.permissions();
+            p.mode()
+            // and drop the file
+        };
+        let backupfn = basename.to_string() + "old";
+        fs::rename(basename.clone(), backupfn)?;
+        // We could depend upon the umask but that way lies easy mistakes.
+        let file = OpenOptions::new().write(true).create_new(true).mode(perms)
+            .open(basename)?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
+#[cfg(windows)]
+    // Assumes it already called with the filename locked.
+    // XXX I don't have the foggiest notion how to secure this file, especially
+    // because file attributes under Windows don't have much relationship to
+    // access control.
+    fn replace_file(basename: &str) -> Result<File, IOError> {
+        let backupfn = basename.to_string() + "old";
+        fs::rename(basename.clone(), backupfn)?;
+        let file = OpenOptions::new().write(true).create_new(true)
+            .share_mode(0).open(basename)?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
+    fn line_has_user(line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
         let fixed_user = user.replace("\n", "\u{FFFD}");
         if v.len() < 2 { // it's not okay for users to have empty passwords
             Err(BackingStoreError::MissingData)
         } else if v[0] == fixed_user {
-            if fail_if_locked && try!(self.hash_is_locked(v[1])) {
+            if fail_if_locked && FileBackingStore::hash_is_locked(v[1])? {
                 Err(BackingStoreError::Locked)
             } else {
                 Ok(Some(v[1].to_string()))
@@ -176,7 +215,7 @@ impl FileBackingStore {
         }
     }
 
-    fn hash_is_locked(&self, hash: &str) -> Result<bool, BackingStoreError> {
+    fn hash_is_locked(hash: &str) -> Result<bool, BackingStoreError> {
         let mut chars = hash.chars();
         match chars.next() {
             Some(c) => Ok(c == '!'),
@@ -189,16 +228,10 @@ impl FileBackingStore {
         let pwfile = self.load_file()?;
 
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-        let oldfn = fname.clone();
-        let newfn = oldfn.to_string() + ".old";
-
-        fs::rename(oldfn.clone(), newfn)?; // XXX modes
-        let file = File::create(oldfn)?;
-        file.lock_exclusive()?;
-        let mut f = BufWriter::new(file);
+        let mut f = BufWriter::new(FileBackingStore::replace_file(&fname)?);
         for line in pwfile.lines() {
             // line_has_user corrects \n to \u{FFFD}
-            match self.line_has_user(line, user, fail_if_locked)? {
+            match FileBackingStore::line_has_user(line, user, fail_if_locked)? {
                 Some(_) => match new_creds {
                     Some(newhash) => {
                         f.write_all(user.replace("\n", "\u{FFFD}").as_bytes())?;
@@ -233,7 +266,8 @@ impl BackingStore for FileBackingStore {
         let pwfile = self.load_file()?;
         for line in pwfile.lines() {
             // line_has_user corrects \n to \u{FFFD}
-            if let Some(hash) = self.line_has_user(line, user, fail_if_locked)? {
+            if let Some(hash) =
+                FileBackingStore::line_has_user(line, user, fail_if_locked)? {
                 return Ok(hash);
             }
             // otherwise keep looking
@@ -255,7 +289,7 @@ impl BackingStore for FileBackingStore {
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         // get_credentials corrects \n to \u{FFFD}
         let mut hash = self.get_credentials(user, false)?;
-        if !self.hash_is_locked(&hash)? {
+        if !FileBackingStore::hash_is_locked(&hash)? {
             hash.insert(0, '!');
             // update_user_hash corrects \n to \u{FFFD}
             return self.update_user_hash(user, Some(&hash), false);
@@ -267,13 +301,13 @@ impl BackingStore for FileBackingStore {
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
         // get_credentials corrects \n to \u{FFFD}
         let hash = self.get_credentials(user, false)?;
-        self.hash_is_locked(&hash)
+        FileBackingStore::hash_is_locked(&hash)
     }
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         // get_credentials corrects \n to \u{FFFD}
         let mut hash = self.get_credentials(user, false)?;
-        if self.hash_is_locked(&hash)? {
+        if FileBackingStore::hash_is_locked(&hash)? {
             hash.remove(0);
             // update_user_hash corrects \n to \u{FFFD}
             return self.update_user_hash(user, Some(&hash), false);
@@ -292,10 +326,8 @@ impl BackingStore for FileBackingStore {
                 Ok(_) => Err(BackingStoreError::UserExists),
                 Err(BackingStoreError::NoSuchUser) => {
                     let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-                    let name = (*fname).clone();
-                    let file = OpenOptions::new().append(true).open(name)?;
-                    file.lock_exclusive()?;
-                    let mut f = BufWriter::new(file);
+                    let mut f =
+                        BufWriter::new(FileBackingStore::replace_file(&fname)?);
                     f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
                     f.write_all(b":")?;
                     f.write_all(enc_cred.as_bytes())?;
@@ -331,7 +363,7 @@ impl BackingStore for FileBackingStore {
             let v: Vec<&str> = line.split(':').collect();
             if v.len() > 1 {
                 if v[0] == user.replace("\n", "\u{FFFD}") {
-                    return match self.hash_is_locked(v[1])? {
+                    return match FileBackingStore::hash_is_locked(v[1])? {
                         true => Err(BackingStoreError::Locked),
                         false => Ok(true),
                     };
@@ -580,6 +612,8 @@ mod test {
         let line = String::from("user:") + &password + "\n";
         assert_eq!(mbs.create_preencrypted("user", &password).is_ok(), true);
         assert_eq!(mbs.verify("user", "password").is_err(), false);
+        assert_eq!(mbs.verify("user", "password"), Ok(true));
+        assert_eq!(mbs.verify("user", "badpassword"), Ok(false));
         let output = mbs.export_as_fbs();
         assert_eq!(output.is_err(), false);
         assert_eq!(output.unwrap(), line);
@@ -592,7 +626,8 @@ mod test {
         // output away in the assert_eq! that proved it.
         assert_eq!(f.unwrap().write_all(line.as_bytes()).is_err(), false);
         let fbs = FileBackingStore::new(&path);
-        assert_eq!(fbs.verify("user", "password").is_err(), false);
+        assert_eq!(fbs.verify("user", "password"), Ok(true));
+        assert_eq!(fbs.verify("user", "badpassword"), Ok(false));
     }
 
     #[test]
