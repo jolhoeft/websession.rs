@@ -32,7 +32,7 @@ fn get_password() -> String {
 
 pub fn main() {
     let matches = App::new("ws_mgr").about("Manage websession users/passwords")
-        .version("0.5.2")
+        .version("0.6.0")
         .author("Ben Stern <bas-github@bstern.org>, Jeff Olhoeft <jolhoeft@gmail.com>")
         .subcommand(SubCommand::with_name(ADDUSER)
             .about("Add a new user").arg(Arg::with_name(ID)
