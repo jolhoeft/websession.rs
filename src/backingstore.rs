@@ -7,6 +7,8 @@
 extern crate libc;
 extern crate pwhash;
 extern crate fs2;
+#[cfg(feature = "rusqlite")]
+extern crate rusqlite;
 
 use std::{io, fs};
 use std::fmt::Debug;
@@ -18,6 +20,8 @@ use std::sync::Mutex;
 use std::vec::IntoIter;
 use pwhash::bcrypt;
 use fs2::FileExt;
+/* #[cfg(feature = "rusqlite")]
+use rusqlite::Connection; */
 
 #[derive(Debug)]
 pub enum BackingStoreError {
@@ -132,13 +136,22 @@ pub trait BackingStore : Debug {
 }
 
 #[derive(Debug)]
-/// File based backing store.
+/// File based backing store.  Persists across restarts.  Requires an
+/// already-created file (which may be empty) but should have correct access
+/// permissions for your operating system and environment.  Good UNIX
+/// permissions are 0600 and owned by the user running the service using the
+/// BackingStore.  Notwithstanding, this module doesn't attempt to enforce good
+/// permissions.  The file is not held open across calls, and the private data
+/// is protected by a mutex, to reduce concurrency issues, but correct locking
+/// and concurrency are the responsibilities of the caller.  This module issues
+/// blocking lock attempts and synchronous I/O, but does not otherwise prevent
+/// I/O from being buffered.
 pub struct FileBackingStore {
     filename: Mutex<String>,
 }
 
 impl FileBackingStore {
-    /// Create a new file based backing store with the given file.  The file
+    /// Create a new file-based backing store with the given file.  The file
     /// already exist, and have appropriate permissions.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
@@ -338,7 +351,7 @@ struct MemoryEntry {
 }
 
 /// In memory backing store. Does not persist across restarts. Mostly
-/// useful for testing.
+/// useful for testing.  Mutex-protected, so can be used across threads safely.
 #[derive(Debug)]
 pub struct MemoryBackingStore {
     users: Mutex<HashMap<String, MemoryEntry>>,
@@ -479,6 +492,23 @@ impl BackingStore for MemoryBackingStore {
         }
     }
 }
+
+/*
+/// SQLite-based backing store.  Persists across restarts.  The database
+/// connection is not held open across calls, and the privated data is protected
+/// by a mutex, to reduce concurrency issues, but correct locking and
+/// concurrency are the responsibilities of the caller.  If you want to ensure
+/// correct permissions on the database
+#[cfg(feature = "rusqlite")]
+#[derive(Debug)]
+pub struct SqliteBackingStore {
+    dbname: Mutex<String>,
+}
+
+#[cfg(feature = "rusqlite")]
+impl SqliteBackingStore {
+    /// Create a new SQLite-based backing store with the given SQLite database.
+*/
 
 // Note that these tests do not set permissions on the (temporary) password
 // files and use hardcoded passwords which are visible in both plaintext and in

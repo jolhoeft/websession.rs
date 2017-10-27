@@ -6,6 +6,10 @@ description = "Web Session Support for Rust"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/jolhoeft/websession.rs/"
 
+# [features]
+# default = []
+# rusqlite = [ rusqlite = "0.12" ]
+
 [dependencies]
 hyper = { version = "0.10", optional = true }
 pwhash = "^0.1"
