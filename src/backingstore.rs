@@ -73,40 +73,49 @@ impl From<pwhash::error::Error> for BackingStoreError {
 /// needed to connect to the store.
 ///
 /// In general, the BackingStore will be accessed in a multi-threaded
-/// environment, so Mutex or RwLock will probably be needed.
+/// environment, so a Mutex or RwLock will probably be needed by implementers.
 pub trait BackingStore : Debug {
     /// Encrypt unencrypted credentials.  For passwords, this would be a sound
     /// hashing function.  For some credentials, such as public keys, additional
     /// encryption may be unneeded.
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError>;
+
     /// Verify the credentials for the user.  Unencrypted passwords are
     /// expected, such as would be provided by a user logging in.
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
+
     /// Get the credentials for the user. For passwords, this would be the
     /// salted hashed password.
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
+
     /// Set new credentials for the user.  Credentials must be encrypted by
     /// `encrypt_credentials`.  If unencrypted credentials are provided, users
     /// will not be able to log in, and plain text will be stored in the backing
     /// store, creating a potential security issue.
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
+
     /// Convenience method, calling encrypt_credentials and update_credentials.
     /// The default implementation should normally be sufficient.
     fn update_credentials_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.update_credentials(user, &enc_cred)
     }
+
     /// Lock the user to prevent logins.  Locked users should never verify, but
     /// the password/credentials are not cleared and can be restored.
     fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
+
     /// Check if the user is locked.
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError>;
+
     /// Unlock the user, restoring the original password/credentials.
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
     /// Create a new user with the given credentials.  Should return
     /// `BackingStoreError::UserExists` if the user already exists. See the
     /// comment about encrypted credentials under `update_credentials`.
+
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
+
     /// Convenience method calling `encrypt_credentials` and
     /// `create_preencrypted`.  The default implementation should normally be
     /// sufficient.
@@ -114,8 +123,10 @@ pub trait BackingStore : Debug {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.create_preencrypted(user, &enc_cred)
     }
+
     /// Delete the user, all stored credentials, and any other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
+.
     /// Return a Vec of the user names. `users_iter` may be more appropriate
     /// when there are large numbers of users.  Only one of `users` or
     /// `users_iter` needs to be implemented, as the default implementations
@@ -124,6 +135,7 @@ pub trait BackingStore : Debug {
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         self.users_iter().map(|v| v.map(|u| u.clone()).collect())
     }
+
     /// Return an Iterator over the user names.  `users` may be more convenient
     /// when there are small numbers of users.  Only one of `users` or
     /// `users_iter` needs to be implemented, as the default implementations
@@ -132,6 +144,7 @@ pub trait BackingStore : Debug {
     fn users_iter(&self) -> Result<IntoIter<String>, BackingStoreError> {
         self.users().map(|v| v.into_iter())
     }
+
     /// Return whether or not the user already exists in the backing store.  May
     /// return a `BackingStoreError`, in particular,
     /// `BackingStoreError::Locked`, which means the user exists but the account
