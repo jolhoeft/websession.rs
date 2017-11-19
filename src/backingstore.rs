@@ -395,9 +395,11 @@ impl MemoryBackingStore {
         }
     }
 
-    /// Exports the contents in a format suitable for a FileBackingStore to use,
-    /// if it is then written to disk as a file with suitable permissions.
-    pub fn export_as_fbs(&self) -> Result<String, BackingStoreError> {
+    /* The more I look at this, the less it seems to be a good idea, */
+    /*
+    /// Exports the contents as a string, which happens to match the format
+    /// used by the FileBackingStore implementation.
+    pub fn to_string(&self) -> Result<String, BackingStoreError> {
         let mut rv = String::new();
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         for (key, val) in hashmap.iter() {
@@ -412,6 +414,7 @@ impl MemoryBackingStore {
         }
         Ok(rv)
     }
+    */
 }
 
 impl BackingStore for MemoryBackingStore {
@@ -605,6 +608,8 @@ mod test {
         assert_eq!(mbs.verify("user", "password").is_err(), true);
     }
 
+    /* The more I look at this, the less it looks like a good idea. */
+    /*
     #[test]
     fn mbs_export() {
         let mbs = MemoryBackingStore::new();
@@ -614,7 +619,7 @@ mod test {
         assert_eq!(mbs.verify("user", "password").is_err(), false);
         assert_eq!(mbs.verify("user", "password"), Ok(true));
         assert_eq!(mbs.verify("user", "badpassword"), Ok(false));
-        let output = mbs.export_as_fbs();
+        let output = mbs.to_string();
         assert_eq!(output.is_err(), false);
         assert_eq!(output.unwrap(), line);
 
@@ -629,6 +634,7 @@ mod test {
         assert_eq!(fbs.verify("user", "password"), Ok(true));
         assert_eq!(fbs.verify("user", "badpassword"), Ok(false));
     }
+    */
 
     #[test]
     fn fbs_check_user() {
