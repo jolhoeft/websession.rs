@@ -21,6 +21,7 @@ use fs2::FileExt;
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 #[cfg(windows)]
@@ -190,7 +191,7 @@ impl FileBackingStore {
     // XXX I don't have the foggiest notion how to secure this file, especially
     // because file attributes under Windows don't have much relationship to
     // access control.
-    fn replace_file(basename: &str) -> Result<File, IOError> {
+    fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
         let backupfn = basename.to_string() + "old";
         fs::rename(basename.clone(), backupfn)?;
         let file = OpenOptions::new().write(true).create_new(true)
