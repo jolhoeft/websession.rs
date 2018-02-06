@@ -19,11 +19,6 @@ use std::vec::IntoIter;
 use pwhash::bcrypt;
 use fs2::FileExt;
 
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
@@ -126,7 +121,7 @@ pub trait BackingStore : Debug {
 
     /// Delete the user, all stored credentials, and any other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
-.
+
     /// Return a Vec of the user names. `users_iter` may be more appropriate
     /// when there are large numbers of users.  Only one of `users` or
     /// `users_iter` needs to be implemented, as the default implementations
@@ -182,32 +177,25 @@ impl FileBackingStore {
     }
 
 #[cfg(unix)]
-    // Assumes it already called with the filename locked.
+    // Assumes it is already called with the filename locked.
     fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
-        let perms = {
-            let f = File::open(basename.clone())?;
-            let p = f.metadata()?.permissions();
-            p.mode()
-            // and drop the file
-        };
-        let backupfn = basename.to_string() + "old";
-        fs::rename(basename.clone(), backupfn)?;
-        // We could depend upon the umask but that way lies easy mistakes.
-        let file = OpenOptions::new().write(true).create_new(true).mode(perms)
+        let backupfn = basename.to_string() + ".old";
+        fs::copy(basename.clone(), backupfn)?;
+        let file = OpenOptions::new().read(true).write(true).create(true)
             .open(basename)?;
         file.lock_exclusive()?;
         Ok(file)
     }
 
 #[cfg(windows)]
-    // Assumes it already called with the filename locked.
+    // Assumes it is already called with the filename locked.
     // XXX I don't have the foggiest notion how to secure this file, especially
     // because file attributes under Windows don't have much relationship to
     // access control.
     fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
-        let backupfn = basename.to_string() + "old";
-        fs::rename(basename.clone(), backupfn)?;
-        let file = OpenOptions::new().write(true).create_new(true)
+        let backupfn = basename.to_string() + ".old";
+        fs::copy(basename.clone(), backupfn)?;
+        let file = OpenOptions::new().read(true).write(true).create(true)
             .share_mode(0).open(basename)?;
         file.lock_exclusive()?;
         Ok(file)
