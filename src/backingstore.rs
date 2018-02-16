@@ -187,6 +187,17 @@ impl FileBackingStore {
         Ok(file)
     }
 
+#[cfg(unix)]
+    // Assumes it is already called with the filename locked.
+    fn append_file(basename: &str) -> Result<File, BackingStoreError> {
+        let backupfn = basename.to_string() + ".old";
+        fs::copy(basename.clone(), backupfn)?;
+        let file = OpenOptions::new().read(true).write(true).create(true).append(true)
+            .open(basename)?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
 #[cfg(windows)]
     // Assumes it is already called with the filename locked.
     // XXX I don't have the foggiest notion how to secure this file, especially
@@ -196,6 +207,20 @@ impl FileBackingStore {
         let backupfn = basename.to_string() + ".old";
         fs::copy(basename.clone(), backupfn)?;
         let file = OpenOptions::new().read(true).write(true).create(true)
+            .share_mode(0).open(basename)?;
+        file.lock_exclusive()?;
+        Ok(file)
+    }
+
+#[cfg(windows)]
+    // Assumes it is already called with the filename locked.
+    // XXX I don't have the foggiest notion how to secure this file, especially
+    // because file attributes under Windows don't have much relationship to
+    // access control.
+    fn append_file(basename: &str) -> Result<File, BackingStoreError> {
+        let backupfn = basename.to_string() + ".old";
+        fs::copy(basename.clone(), backupfn)?;
+        let file = OpenOptions::new().read(true).write(true).create(true).append(true)
             .share_mode(0).open(basename)?;
         file.lock_exclusive()?;
         Ok(file)
@@ -228,7 +253,6 @@ impl FileBackingStore {
     fn update_user_hash(&self, user: &str, new_creds: Option<&str>, fail_if_locked: bool) -> Result<(), BackingStoreError> {
         let mut found = false;
         let pwfile = self.load_file()?;
-
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let mut f = BufWriter::new(FileBackingStore::replace_file(&fname)?);
         for line in pwfile.lines() {
@@ -329,7 +353,7 @@ impl BackingStore for FileBackingStore {
                 Err(BackingStoreError::NoSuchUser) => {
                     let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
                     let mut f =
-                        BufWriter::new(FileBackingStore::replace_file(&fname)?);
+                        BufWriter::new(FileBackingStore::append_file(&fname)?);
                     f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
                     f.write_all(b":")?;
                     f.write_all(enc_cred.as_bytes())?;
