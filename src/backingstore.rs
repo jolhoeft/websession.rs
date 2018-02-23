@@ -79,13 +79,11 @@ pub trait BackingStore : Debug {
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
 
     /// Get the credentials for the user. For passwords, this would be the salted hashed password.
-
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
 
     /// Set new credentials for the user.  Credentials must be encrypted by `encrypt_credentials`.  If unencrypted
     /// credentials are provided, users will not be able to log in, and plain text will be stored in the backing store,
     /// creating a potential security issue.
-
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
     /// Convenience method, calling `encrypt_credentials` and `update_credentials`.  The default implementation should
@@ -176,7 +174,8 @@ impl FileBackingStore {
         Ok(buf)
     }
 
-    // Returns the password of the user in question, if they're found (and unlocked, when `fail_if_locked` is `true`).
+    /// Returns the password of the user in question, if they're found (and unlocked, when `fail_if_locked` is `true`).
+    /// Returns MissingData if the password file is missing a password, or Locked if they're found but locked.
     fn line_has_user(line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
         let fixed_user = FileBackingStore::fix_username(user);
@@ -372,6 +371,8 @@ impl BackingStore for FileBackingStore {
         self.update_password_file(user, Some(enc_cred), None)
     }
 
+    /// Returns Ok(()) on deletion, Err(BackingStoreError::NoSuchUser) if they were already deleted, or IO or Mutex
+    /// errors.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
         self.update_password_file(user, None, Some(false))
     }
@@ -566,9 +567,12 @@ impl BackingStore for MemoryBackingStore {
 #[cfg(test)]
 mod test {
     extern crate tempdir;
+    extern crate rand;
 
     use backingstore::*;
     use std::fs::File;
+    use std::collections::HashSet;
+    use backingstore::test::rand::Rng;
 
     fn make_filebackingstore() -> (FileBackingStore, tempdir::TempDir) {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
@@ -696,5 +700,112 @@ mod test {
 
         assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
         assert_eq!(mbs.check_user("user\nname"), Ok(true));
+    }
+
+    #[test]
+    fn fbs_fuzz_users() {
+        let (fbs, _temp) = make_filebackingstore();
+        let names: Vec<String> = (0 .. 20).map(|_| (0 .. 10).map(|_| rand::random::<char>()).collect()).collect();
+        let passwords: Vec<String> = (0 .. 20).map(|_| (0 .. 10).map(|_| rand::random::<char>()).collect()).collect();
+        let newpasswords: Vec<String> = (0 .. 20).map(|_| (0 .. 10).map(|_| rand::random::<char>()).collect()).collect();
+
+        let mut added: HashSet<&str> = HashSet::new();
+        let mut locked: HashSet<&str> = HashSet::new();
+        let mut changed: HashSet<&str> = HashSet::new();
+
+        // Things we can do:
+        // - add users
+        // - lock users
+        // - unlock users
+        // - change passwords
+        // - delete users
+        // - see if a user exists
+
+        enum Things {
+            Add,
+            Lock,
+            Unlock,
+            Change,
+            Delete,
+            Examine,
+            Verify,
+        }
+        impl rand::Rand for Things {
+            fn rand<R: Rng>(rng: &mut R) -> Self {
+                match rng.gen_range(0, 7) {
+                    0 => Things::Add,
+                    1 => Things::Lock,
+                    2 => Things::Unlock,
+                    3 => Things::Change,
+                    4 => Things::Delete,
+                    5 => Things::Examine,
+                    _ => Things::Verify,
+                }
+            }
+        }
+
+        for _ in [ 1 .. 10 ].iter() {
+            for (i, x) in names.iter().enumerate() {
+                match rand::random::<Things>() {
+                    Things::Add => if added.contains(&x.as_str()) {
+                        assert_eq!(fbs.create_plain(&x, &passwords[i]), Err(BackingStoreError::UserExists));
+                    } else {
+                        assert_eq!(fbs.create_plain(&x, &passwords[i]), Ok(()));
+                        added.insert(&x.as_str());
+                    },
+                    Things::Lock => if added.contains(&x.as_str()) {
+                        assert_eq!(fbs.lock(&x.as_str()), Ok(()));
+                        locked.insert(&x.as_str());
+                    } else {
+                        assert_eq!(fbs.lock(&x.as_str()), Err(BackingStoreError::NoSuchUser));
+                    },
+                    Things::Unlock => if added.contains(&x.as_str()) {
+                        assert_eq!(fbs.unlock(&x.as_str()), Ok(()));
+                        locked.remove(&x.as_str());
+                    } else {
+                        assert_eq!(fbs.unlock(&x.as_str()), Err(BackingStoreError::NoSuchUser));
+                    },
+                    Things::Change => if added.contains(&x.as_str()) {
+                        if locked.contains(&x.as_str()) {
+                            assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Err(BackingStoreError::Locked));
+                        } else {
+                            assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Ok(()));
+                            changed.insert(&x.as_str());
+                        }
+                    } else {
+                        assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Err(BackingStoreError::NoSuchUser));
+                    },
+                    Things::Delete => if added.contains(&x.as_str()) {
+                        assert_eq!(fbs.delete(&x.as_str()), Ok(()));
+                        locked.remove(&x.as_str());
+                        changed.remove(&x.as_str());
+                        added.remove(&x.as_str());
+                    } else {
+                        assert_eq!(fbs.delete(&x.as_str()), Err(BackingStoreError::NoSuchUser));
+                    },
+                    Things::Examine => if added.contains(&x.as_str()) {
+                        if locked.contains(&x.as_str()) {
+                            assert_eq!(fbs.check_user(&x.as_str()), Err(BackingStoreError::Locked));
+                        } else {
+                            assert_eq!(fbs.check_user(&x.as_str()), Ok(true));
+                        }
+                    } else {
+                        assert_eq!(fbs.check_user(&x.as_str()), Ok(false));
+                    },
+                    Things::Verify => if added.contains(&x.as_str()) {
+                        if changed.contains(&x.as_str()) {
+                            assert_eq!(fbs.verify(&x, &passwords[i]), Ok(false));
+                            assert_eq!(fbs.verify(&x, &newpasswords[i]), Ok(true));
+                        } else {
+                            assert_eq!(fbs.verify(&x, &passwords[i]), Ok(true));
+                            assert_eq!(fbs.verify(&x, &newpasswords[i]), Ok(false));
+                        }
+                    } else {
+                        assert_eq!(fbs.verify(&x, &passwords[i]), Err(BackingStoreError::NoSuchUser));
+                        assert_eq!(fbs.verify(&x, &newpasswords[i]), Err(BackingStoreError::NoSuchUser));
+                    }
+                }
+            }
+        }
     }
 }
