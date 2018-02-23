@@ -246,7 +246,7 @@ impl FileBackingStore {
             (Some(_), None) => (true, false, false),
             (Some(_), Some(fil)) => (false, true, fil),
             (None, Some(fil)) => (false, false, fil),
-            _ => return Err(BackingStoreError::MissingData),
+            (None, None) => (false, false, false), // It looks like they want to delete the user.
         };
 
         let all = self.load_file()?;
