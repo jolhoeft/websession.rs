@@ -1,8 +1,7 @@
 //! # BackingStore
 //!
-//! The BackingStore trait provides the interfaces for storing user
-//! credentials. Default implementations are provided for plain text
-//! file and in memory storage.
+//! The BackingStore trait provides the interfaces for storing user credentials. Default implementations are provided
+//! for plain text files and in-memory storage.
 
 extern crate libc;
 extern crate pwhash;
@@ -60,44 +59,42 @@ impl From<pwhash::error::Error> for BackingStoreError {
     }
 }
 
-/// The BackingStore doesn't know about user-IDs vs usernames: the consumer of
-/// websessions is responsible for being able to change usernames w/o affecting
-/// user-IDs.
+/// The BackingStore doesn't know about user-IDs vs usernames: the consumer of websessions is responsible for being
+/// able to change usernames w/o affecting user-IDs.
 ///
-/// N.B., implementors of BackingStore provide a `new` that gets whatever is
-/// needed to connect to the store.
+/// N.B., implementors of BackingStore provide a `new` that gets whatever is needed to connect to the store.
 ///
-/// In general, the BackingStore will be accessed in a multi-threaded
-/// environment, so a Mutex or RwLock will probably be needed by implementers.
+/// In general, the BackingStore will be accessed in a multi-threaded environment, so a Mutex or RwLock will probably
+/// be needed by implementers.
+
 pub trait BackingStore : Debug {
-    /// Encrypt unencrypted credentials.  For passwords, this would be a sound
-    /// hashing function.  For some credentials, such as public keys, additional
-    /// encryption may be unneeded.
+    /// Encrypt unencrypted credentials.  For passwords, this would be a sound hashing function.  For some credentials,
+    /// such as public keys, additional encryption may be unneeded.
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError>;
 
     /// Verify the credentials for the user.  Unencrypted passwords are
     /// expected, such as would be provided by a user logging in.
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
 
-    /// Get the credentials for the user. For passwords, this would be the
-    /// salted hashed password.
+    /// Get the credentials for the user. For passwords, this would be the salted hashed password.
+
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError>;
 
-    /// Set new credentials for the user.  Credentials must be encrypted by
-    /// `encrypt_credentials`.  If unencrypted credentials are provided, users
-    /// will not be able to log in, and plain text will be stored in the backing
-    /// store, creating a potential security issue.
+    /// Set new credentials for the user.  Credentials must be encrypted by `encrypt_credentials`.  If unencrypted
+    /// credentials are provided, users will not be able to log in, and plain text will be stored in the backing store,
+    /// creating a potential security issue.
+
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
-    /// Convenience method, calling encrypt_credentials and update_credentials.
-    /// The default implementation should normally be sufficient.
+    /// Convenience method, calling `encrypt_credentials` and `update_credentials`.  The default implementation should
+    /// normally be sufficient.
     fn update_credentials_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
         let enc_cred = self.encrypt_credentials(plain_cred)?;
         self.update_credentials(user, &enc_cred)
     }
 
-    /// Lock the user to prevent logins.  Locked users should never verify, but
-    /// the password/credentials are not cleared and can be restored.
+    /// Lock the user to prevent logins.  Locked users should never verify, but the password/credentials are not cleared
+    /// and can be restored.
     fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
 
     /// Check if the user is locked.
@@ -105,45 +102,35 @@ pub trait BackingStore : Debug {
 
     /// Unlock the user, restoring the original password/credentials.
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
-    /// Create a new user with the given credentials.  Should return
-    /// `BackingStoreError::UserExists` if the user already exists. See the
-    /// comment about encrypted credentials under `update_credentials`.
 
+    /// Create a new user with the given credentials.  Should return `BackingStoreError::UserExists` if the user already
+    /// exists.  See the comment about encrypted credentials under `update_credentials`.
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
-    /// Convenience method calling `encrypt_credentials` and
-    /// `create_preencrypted`.  The default implementation should normally be
-    /// sufficient.
-    fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
-        let enc_cred = self.encrypt_credentials(plain_cred)?;
-        self.create_preencrypted(user, &enc_cred)
-    }
+    // Convenience method calling `encrypt_credentials` and `create_preencrypted`.  The default implementation should
+    /// normally be sufficient.
+    fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> { let enc_cred =
+        self.encrypt_credentials(plain_cred)?; self.create_preencrypted(user, &enc_cred) }
 
     /// Delete the user, all stored credentials, and any other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
 
-    /// Return a Vec of the user names. `users_iter` may be more appropriate
-    /// when there are large numbers of users.  Only one of `users` or
-    /// `users_iter` needs to be implemented, as the default implementations
-    /// will take care of the other.  However, there may be performance reasons
-    /// to implement both.
+    /// Return a Vec of the user names. `users_iter` may be more appropriate when there are large numbers of users.
+    /// Only one of `users` or `users_iter` needs to be implemented, as the default implementations will take care of
+    /// the other.  However, there may be performance reasons to implement both.
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         self.users_iter().map(|v| v.map(|u| u.clone()).collect())
     }
 
-    /// Return an Iterator over the user names.  `users` may be more convenient
-    /// when there are small numbers of users.  Only one of `users` or
-    /// `users_iter` needs to be implemented, as the default implementations
-    /// will take care of the other.  However, there may be performance reasons
-    /// to implement both.
+    /// Return an Iterator over the user names.  `users` may be more convenient when there are small numbers of users.
+    /// Only one of `users` or `users_iter` needs to be implemented, as the default implementations will take care of
+    /// the other.  However, there may be performance reasons to implement both.
     fn users_iter(&self) -> Result<IntoIter<String>, BackingStoreError> {
         self.users().map(|v| v.into_iter())
     }
 
-    /// Return whether or not the user already exists in the backing store.  May
-    /// return a `BackingStoreError`, in particular,
-    /// `BackingStoreError::Locked`, which means the user exists but the account
-    /// is locked.
+    /// Return whether or not the user already exists in the backing store.  May return a `BackingStoreError`, in
+    /// particular, `BackingStoreError::Locked`, which means the user exists but the account is locked.
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError>;
 }
 
@@ -154,8 +141,8 @@ pub struct FileBackingStore {
 }
 
 impl FileBackingStore {
-    /// Create a new file based backing store with the given file.  The file
-    /// must already exist, and is assumed to have appropriate permissions.
+    /// Create a new file based backing store with the given file.  The file must already exist, and is assumed to have
+    /// appropriate permissions.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
@@ -163,9 +150,18 @@ impl FileBackingStore {
         }
     }
 
-    // It would be nice if we allowed retries and/or sleep times, but that
-    // breaks the API.  Right now, let's go with "worse is better" and force the
-    // caller to manage this.
+#[cfg(windows)]
+    fn fix_options(opts: &mut OpenOptions) -> &mut OpenOptions {
+        opts.share_mode(0)
+    }
+
+#[cfg(unix)]
+    fn fix_options(opts: &mut OpenOptions) -> &mut OpenOptions {
+        opts
+    }
+
+    // It would be nice if we allowed retries and/or sleep times, but that breaks the API.  Right now, let's go with
+    // "worse is better" and force the caller to manage this.
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let name = fname.clone();
@@ -176,59 +172,13 @@ impl FileBackingStore {
         Ok(buf)
     }
 
-#[cfg(unix)]
-    // Assumes it is already called with the filename locked.
-    fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
-        let backupfn = basename.to_string() + ".old";
-        fs::copy(basename.clone(), backupfn)?;
-        let file = OpenOptions::new().read(true).write(true).create(true)
-            .open(basename)?;
-        file.lock_exclusive()?;
-        Ok(file)
-    }
-
-#[cfg(unix)]
-    // Assumes it is already called with the filename locked.
-    fn append_file(basename: &str) -> Result<File, BackingStoreError> {
-        let backupfn = basename.to_string() + ".old";
-        fs::copy(basename.clone(), backupfn)?;
-        let file = OpenOptions::new().read(true).write(true).create(true).append(true)
-            .open(basename)?;
-        file.lock_exclusive()?;
-        Ok(file)
-    }
-
-#[cfg(windows)]
-    // Assumes it is already called with the filename locked.
-    // XXX I don't have the foggiest notion how to secure this file, especially
-    // because file attributes under Windows don't have much relationship to
-    // access control.
-    fn replace_file(basename: &str) -> Result<File, BackingStoreError> {
-        let backupfn = basename.to_string() + ".old";
-        fs::copy(basename.clone(), backupfn)?;
-        let file = OpenOptions::new().read(true).write(true).create(true)
-            .share_mode(0).open(basename)?;
-        file.lock_exclusive()?;
-        Ok(file)
-    }
-
-#[cfg(windows)]
-    // Assumes it is already called with the filename locked.
-    // XXX I don't have the foggiest notion how to secure this file, especially
-    // because file attributes under Windows don't have much relationship to
-    // access control.
-    fn append_file(basename: &str) -> Result<File, BackingStoreError> {
-        let backupfn = basename.to_string() + ".old";
-        fs::copy(basename.clone(), backupfn)?;
-        let file = OpenOptions::new().read(true).write(true).create(true).append(true)
-            .share_mode(0).open(basename)?;
-        file.lock_exclusive()?;
-        Ok(file)
+    fn fix_username(user: &str) -> String {
+        user.replace("\n", "\u{FFFD}").replace(":", "\u{FFFFD}")
     }
 
     fn line_has_user(line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
-        let fixed_user = user.replace("\n", "\u{FFFD}");
+        let fixed_user = FileBackingStore::fix_username(user);
         if v.len() < 2 { // it's not okay for users to have empty passwords
             Err(BackingStoreError::MissingData)
         } else if v[0] == fixed_user {
@@ -250,34 +200,63 @@ impl FileBackingStore {
         }
     }
 
+    // TODO generalize update_user_hash and create_preencrypted to both use the same sort of operations, because this
+    // needs to be atomic.
+
     fn update_user_hash(&self, user: &str, new_creds: Option<&str>, fail_if_locked: bool) -> Result<(), BackingStoreError> {
-        let mut found = false;
+        let mut found_user = false;
         let pwfile = self.load_file()?;
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-        let mut f = BufWriter::new(FileBackingStore::replace_file(&fname)?);
-        for line in pwfile.lines() {
-            // line_has_user corrects \n to \u{FFFD}
-            match FileBackingStore::line_has_user(line, user, fail_if_locked)? {
-                Some(_) => match new_creds {
-                    Some(newhash) => {
-                        f.write_all(user.replace("\n", "\u{FFFD}").as_bytes())?;
-                        f.write_all(b":")?;
-                        f.write_all(newhash.as_bytes())?;
-                        f.write_all(b"\n")?;
-                        found = true;
+
+        let oldfn = fname.to_string() + ".old";
+        let newfn = fname.to_string() + ".new";
+        // Back up the existing db.  XXX We need an atomic way to do this - right now, it might follow symlinks.
+        fs::copy(fname.clone(), oldfn)?;
+        // Work on an intermediate file, in case of some sort of disaster before
+        // we can finish writing.  Try deleting any stale intermediate files
+        // first.
+        let _ = fs::remove_file(newfn.clone()); // If this fails, no big deal.
+        { // We want the filesystem lock to drop and the file to close when we leave this block.
+            let mut o = OpenOptions::new();
+            let opts = FileBackingStore::fix_options(o.create_new(true).write(true));
+
+            let newf = opts.open(newfn.clone())?;
+            newf.lock_exclusive()?;
+            // XXX This next line needs testing under Windows.  It should work, but I have memories of Windows losing
+            // its mind with open files.
+            newf.set_permissions(fs::metadata(fname.clone())?.permissions())?;
+            let mut f = BufWriter::new(newf);
+
+            for line in pwfile.lines() {
+                match FileBackingStore::line_has_user(line, user, fail_if_locked)? {
+                    Some(_) => {
+                        if let Some(newhash) = new_creds {
+                            if !found_user {
+                                // They're on this line and we haven't written them yet.
+                                let fixed_user = FileBackingStore::fix_username(user);
+                                f.write_all(fixed_user.as_bytes())?;
+                                f.write_all(b":")?;
+                                f.write_all(newhash.as_bytes())?;
+                                f.write_all(b"\n")?;
+                            }
+                        }
+                        // We don't want to write this line in any other case.
+                        found_user = true;
                     },
-                    None => found = true, // we're deleting, don't write out
-                },
-                None => { // wrong user on this line, continue
-                    f.write_all(line.as_bytes())?;
-                    f.write_all(b"\n")?;
-                },
+                    // Otherwise, it's someone else.  Write them out.
+                    None => {
+                        f.write_all(line.as_bytes())?;
+                        f.write_all(b"\n")?;
+                    },
+                }
             }
         }
-
-        if found {
+        if found_user {
+            fs::rename(newfn, fname.to_string())?;
             Ok(())
         } else {
+            // Try to clean up after ourselves.  If it doesn't work, whatever.
+            let _ = fs::remove_file(newfn);
             Err(BackingStoreError::NoSuchUser)
         }
     }
@@ -291,9 +270,7 @@ impl BackingStore for FileBackingStore {
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
         let pwfile = self.load_file()?;
         for line in pwfile.lines() {
-            // line_has_user corrects \n to \u{FFFD}
-            if let Some(hash) =
-                FileBackingStore::line_has_user(line, user, fail_if_locked)? {
+            if let Some(hash) = FileBackingStore::line_has_user(line, user, fail_if_locked)? {
                 return Ok(hash);
             }
             // otherwise keep looking
@@ -343,25 +320,31 @@ impl BackingStore for FileBackingStore {
     }
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        // The FileBackingStore uses a : delimiter, so : in usernames is bad.
-        if user.find(':').is_some() {
-            Err(BackingStoreError::NoSuchUser)
-        } else {
-            // get_credentials corrects \n to \u{FFFD}
-            match self.get_credentials(user, false) {
-                Ok(_) => Err(BackingStoreError::UserExists),
-                Err(BackingStoreError::NoSuchUser) => {
-                    let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-                    let mut f =
-                        BufWriter::new(FileBackingStore::append_file(&fname)?);
+        // The FileBackingStore uses a : delimiter, so : in usernames is bad.  That said, we're now replacing them with
+        // the Unicode replacement character \u{FFFD}, so this is no longer fatal.
+        match self.get_credentials(user, false) {
+            Ok(_) => Err(BackingStoreError::UserExists),
+            Err(BackingStoreError::NoSuchUser) => {
+                let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
+                // Try to back up the file before we mess with it.
+                let oldfn = fname.to_string() + ".old";
+                let newfn = fname.to_string() + ".new";
+                // Back up the existing db.  XXX We need an atomic way to do this - right now, it might follow symlinks.
+                fs::copy(fname.clone(), oldfn)?;
+                fs::copy(fname.clone(), newfn.clone())?;
+                let mut o = OpenOptions::new();
+                let opts = FileBackingStore::fix_options(o.append(true));
+                {
+                    let mut f = BufWriter::new(opts.open(newfn.clone())?);
                     f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
                     f.write_all(b":")?;
                     f.write_all(enc_cred.as_bytes())?;
                     f.write_all(b"\n")?;
-                    Ok(())
-                },
-                Err(e) => Err(e),
-            }
+                }
+                fs::rename(newfn, fname.to_string())?;
+                Ok(())
+            },
+            Err(e) => Err(e),
         }
     }
 
@@ -450,7 +433,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.get(user) {
             Some(entry) => if !(fail_if_locked && entry.locked) {
                 Ok(entry.credentials.to_string())
             } else {
