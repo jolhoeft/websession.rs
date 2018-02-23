@@ -62,14 +62,13 @@ impl From<pwhash::error::Error> for BackingStoreError {
     }
 }
 
-/// The BackingStore doesn't know about user-IDs vs usernames: the consumer of websessions is responsible for being
+/// The BackingStore doesn't know about user-IDs vs usernames: the consumer of websession is responsible for being
 /// able to change usernames w/o affecting user-IDs.
 ///
 /// N.B., implementors of BackingStore provide a `new` that gets whatever is needed to connect to the store.
 ///
 /// In general, the BackingStore will be accessed in a multi-threaded environment, so a Mutex or RwLock will probably
 /// be needed by implementers.
-
 pub trait BackingStore : Debug {
     /// Encrypt unencrypted credentials.  For passwords, this would be a sound hashing function.  For some credentials,
     /// such as public keys, additional encryption may be unneeded.
@@ -110,10 +109,12 @@ pub trait BackingStore : Debug {
     /// exists.  See the comment about encrypted credentials under `update_credentials`.
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
-    // Convenience method calling `encrypt_credentials` and `create_preencrypted`.  The default implementation should
+    /// Convenience method calling `encrypt_credentials` and `create_preencrypted`.  The default implementation should
     /// normally be sufficient.
-    fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> { let enc_cred =
-        self.encrypt_credentials(plain_cred)?; self.create_preencrypted(user, &enc_cred) }
+    fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
+        let enc_cred = self.encrypt_credentials(plain_cred)?;
+        self.create_preencrypted(user, &enc_cred)
+    }
 
     /// Delete the user, all stored credentials, and any other data.
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
@@ -175,10 +176,6 @@ impl FileBackingStore {
         Ok(buf)
     }
 
-    fn fix_username(user: &str) -> String {
-        user.replace("\n", "\u{FFFD}").replace(":", "\u{FFFFD}")
-    }
-
     // Returns the password of the user in question, if they're found (and unlocked, when `fail_if_locked` is `true`).
     fn line_has_user(line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
@@ -204,6 +201,11 @@ impl FileBackingStore {
         }
     }
 
+    // Fix usernames so that no illegal characters or strings enter the backing store.  I'd like all `BackingStore`
+    // implementations to implement this, but I can't figure out how to do this generically while still allowing users
+    // to override it, so for now, it's here as an example.
+    fn fix_username(user: &str) -> String { user.replace("\n", "\u{FFFD}").replace(":", "\u{FFFFD}") }
+
     fn create_safe(filename: &str) -> Result<File, BackingStoreError> {
         let newf;
 
@@ -221,8 +223,8 @@ impl FileBackingStore {
                         newf = x;
                         break;
                     },
-                    // Keep going...
-                    Err(ref e) if (e.kind() == io::ErrorKind::Interrupted) || (e.kind() == io::ErrorKind::AlreadyExists) => (),
+                    Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(ref e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(e) => return Err(BackingStoreError::IO(e)),
                 }
             }
@@ -238,8 +240,8 @@ impl FileBackingStore {
     // To change an existing user's password, supply: username, Some(password), Some(fail_if_locked)
     // To delete a user, supply:                      username, None,           _
     fn update_password_file(&self, username: &str, new_creds: Option<&str>, fail_if_locked: Option<bool>) -> Result<(), BackingStoreError> {
-        let fixedname = FileBackingStore::fix_username(username);
         let mut user_recorded = false;
+        let fixedname = FileBackingStore::fix_username(username);
 
         let (create_new, change_pass, fil) = match (new_creds, fail_if_locked) {
             (Some(_), None) => (true, false, false),
@@ -248,11 +250,10 @@ impl FileBackingStore {
             _ => return Err(BackingStoreError::MissingData),
         };
 
+        let all = self.load_file()?;
         let basename = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
         let oldfn = basename.to_string() + ".old";
         let newfn = basename.to_string() + ".new";
-
-        let all = self.load_file()?;
 
         { // In its own block because I want to drop the backup file once it was written.
             let mut backupf = FileBackingStore::create_safe(&oldfn)?;
@@ -391,10 +392,11 @@ impl BackingStore for FileBackingStore {
 
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
         let pwfile = self.load_file()?;
+        let fixeduser = FileBackingStore::fix_username(user);
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
             if v.len() > 1 {
-                if v[0] == user.replace("\n", "\u{FFFD}") {
+                if v[0] == fixeduser {
                     return match FileBackingStore::hash_is_locked(v[1])? {
                         true => Err(BackingStoreError::Locked),
                         false => Ok(true),
@@ -474,7 +476,7 @@ impl BackingStore for MemoryBackingStore {
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap =
             self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.get_mut(user) {
             Some(entry) => match entry.locked {
                 true => Err(BackingStoreError::Locked),
                 false => {
@@ -488,7 +490,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.get_mut(user) {
             Some(entry) => {
                 entry.locked = true;
                 Ok(())
@@ -499,7 +501,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.get(user) {
             Some(entry) => Ok(entry.locked),
             None => Err(BackingStoreError::NoSuchUser),
         }
@@ -507,7 +509,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        match hashmap.get_mut(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.get_mut(user) {
             Some(entry) => {
                 entry.locked = false;
                 Ok(())
@@ -518,13 +520,10 @@ impl BackingStore for MemoryBackingStore {
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        let fixed_user = &user.replace("\n", "\u{FFFD}"); // compatibility FBS
-        if hashmap.contains_key(fixed_user) {
+        if hashmap.contains_key(user) {
             Err(BackingStoreError::UserExists)
-        } else if fixed_user.find(':').is_some() { // maintain compatibility with FBS
-            Err(BackingStoreError::NoSuchUser)
         } else {
-            hashmap.insert(fixed_user.to_string(), MemoryEntry {
+            hashmap.insert(user.to_string(), MemoryEntry {
                 credentials: enc_cred.to_string(),
                 locked: false,
             });
@@ -535,7 +534,7 @@ impl BackingStore for MemoryBackingStore {
     fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_|
             BackingStoreError::Mutex)?;
-        match hashmap.remove(&user.replace("\n", "\u{FFFD}")) {
+        match hashmap.remove(user) {
             Some(_) => Ok(()),
             None => Err(BackingStoreError::NoSuchUser),
         }
@@ -548,7 +547,7 @@ impl BackingStore for MemoryBackingStore {
 
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        if let Some(u) = hashmap.get(&user.replace("\n", "\u{FFFD}")) {
+        if let Some(u) = hashmap.get(user) {
             match u.locked {
                 true => Err(BackingStoreError::Locked),
                 false => Ok(true),
@@ -570,42 +569,49 @@ mod test {
 
     use backingstore::*;
     use std::fs::File;
-    use std::io::Write;
 
-    /// Tests that usernames with `:` in them are illegal for the
-    /// `FileBackingStore`.  This concern is specific to the implementation of
-    /// the `FileBackingStore`, which uses `:` as a delimiter, but is also
-    /// carried across to the `MemoryBackingStore` to provide a simple
-    /// conversion path from the latter to the former.
-    #[test]
-    fn fbs_colons_in_usernames() {
+    fn make_filebackingstore() -> (FileBackingStore, tempdir::TempDir) {
         let fullpath = tempdir::TempDir::new("fbs").unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
         let _f = File::create(path);
-        let fbs = FileBackingStore::new(&path);
-
-        assert_eq!(fbs.create_plain("bad:user", "password").is_err(), true);
+        (FileBackingStore::new(&path), fullpath)
     }
 
-    /// Tests that usernames with `:` in them are illegal for the
-    /// `MemoryBackingStore`.  This concern is specific to the implementation of
-    /// the `FileBackingStore`, which uses `:` as a delimiter, but is also
-    /// carried across to the `MemoryBackingStore` to provide a simple
-    /// conversion path from the latter to the former.
+    /// Tests that usernames with `:` and `\n` in them are now okay for the `FileBackingStore` (because it will convert
+    /// them).  This concern was specific to the implementation of the `FileBackingStore`, which uses `:` as a
+    /// delimiter, but is no longer required -- with the caveat that the FileBackingStore may collide usernames that the
+    /// `MemoryBackingStore` won't complain about.
+    #[test]
+    fn fbs_colons_in_usernames() {
+        let (fbs, _temp) = make_filebackingstore();
+
+        assert_eq!(fbs.create_plain("now:a:valid:user", "password").is_err(), false);
+    }
+
+    /// Tests that usernames with `:` and `\n` in them are now okay for the `MemoryBackingStore` (because it doesn't
+    /// care).  This concern was specific to the implementation of the `FileBackingStore`, which uses `:` as a
+    /// delimiter, but is no longer required -- with the caveat that the FileBackingStore may collide usernames that the
+    /// `MemoryBackingStore` won't complain about.
     #[test]
     fn mbs_colons_in_usernames() {
         let mbs = MemoryBackingStore::new();
-        assert_eq!(mbs.create_plain("bad:user", "password").is_err(), true);
+        assert_eq!(mbs.create_plain("now:a:good:user", "password").is_err(), false);
+    }
+
+    /// Tests that usernames and passwords with Unicode in them are okay.  There's no reason they shouldn't be, but
+    /// let's make sure.
+
+    #[test]
+    fn fbs_unicrud() {
+        let (fbs, _temp) = make_filebackingstore();
+
+        assert_eq!(fbs.create_plain("Some\u{FFFD}", "Unicode\u{2747}").is_err(), false);
     }
 
     #[test]
     fn fbs_create_user_plain() {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
-        let tp = fullpath.path().join("fbs");
-        let path = tp.to_str().unwrap();
-        let _f = File::create(path);
-        let fbs = FileBackingStore::new(&path);
+        let (fbs, _temp) = make_filebackingstore();
 
         assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
     }
@@ -619,11 +625,7 @@ mod test {
     /// Tests that locked users cannot authenticate to the `FileBackingStore`.
     #[test]
     fn fbs_can_locked_login() {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
-        let tp = fullpath.path().join("fbs");
-        let path = tp.to_str().unwrap();
-        let _f = File::create(path);
-        let fbs = FileBackingStore::new(&path);
+        let (fbs, _temp) = make_filebackingstore();
 
         assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
         assert_eq!(fbs.lock("user").is_ok(), true);
@@ -640,41 +642,9 @@ mod test {
         assert_eq!(mbs.verify("user", "password").is_err(), true);
     }
 
-    /* The more I look at this, the less it looks like a good idea. */
-    /*
-    #[test]
-    fn mbs_export() {
-        let mbs = MemoryBackingStore::new();
-        let password = String::from("$2b$08$LOru0WKGEf49Pn26QuFC7OPIYyihiFNNjr0DBzWkLNj/rq8cg3sgq");
-        let line = String::from("user:") + &password + "\n";
-        assert_eq!(mbs.create_preencrypted("user", &password).is_ok(), true);
-        assert_eq!(mbs.verify("user", "password").is_err(), false);
-        assert_eq!(mbs.verify("user", "password"), Ok(true));
-        assert_eq!(mbs.verify("user", "badpassword"), Ok(false));
-        let output = mbs.to_string();
-        assert_eq!(output.is_err(), false);
-        assert_eq!(output.unwrap(), line);
-
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
-        let tp = fullpath.path().join("fbs");
-        let path = tp.to_str().unwrap();
-        let f = File::create(path);
-        // Once we've gotten here, line and output are the same, but I gave
-        // output away in the assert_eq! that proved it.
-        assert_eq!(f.unwrap().write_all(line.as_bytes()).is_err(), false);
-        let fbs = FileBackingStore::new(&path);
-        assert_eq!(fbs.verify("user", "password"), Ok(true));
-        assert_eq!(fbs.verify("user", "badpassword"), Ok(false));
-    }
-    */
-
     #[test]
     fn fbs_check_user() {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
-        let tp = fullpath.path().join("fbs");
-        let path = tp.to_str().unwrap();
-        let _f = File::create(path);
-        let fbs = FileBackingStore::new(&path);
+        let (fbs, _temp) = make_filebackingstore();
 
         assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
         assert_eq!(fbs.check_user("user").is_ok(), true);
@@ -697,11 +667,7 @@ mod test {
 
     #[test]
     fn fbs_check_newline() {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
-        let tp = fullpath.path().join("fbs");
-        let path = tp.to_str().unwrap();
-        let _f = File::create(path);
-        let fbs = FileBackingStore::new(&path);
+        let (fbs, _temp) = make_filebackingstore();
 
         assert_eq!(fbs.create_plain("user\nname", "password").is_ok(), true);
         assert_eq!(fbs.check_user("user\nname").is_ok(), true);
@@ -710,12 +676,25 @@ mod test {
     }
 
     #[test]
-    fn mbs_check_newline() {
+    fn mbs_check_newline1() {
+        let mbs = MemoryBackingStore::new();
+
+        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
+    }
+
+    #[test]
+    fn mbs_check_newline2() {
         let mbs = MemoryBackingStore::new();
 
         assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
         assert_eq!(mbs.check_user("user\nname").is_ok(), true);
+    }
+
+    #[test]
+    fn mbs_check_newline3() {
+        let mbs = MemoryBackingStore::new();
+
+        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
         assert_eq!(mbs.check_user("user\nname"), Ok(true));
-        assert_eq!(mbs.check_user("user\u{FFFD}name"), Ok(true));
     }
 }
