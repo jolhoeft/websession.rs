@@ -140,6 +140,16 @@ pub struct FileBackingStore {
     filename: Mutex<String>,
 }
 
+#[cfg(windows)]
+macro_rules! fbs_options {
+    ($x:expr) => ($x.share_mode(0));
+}
+
+#[cfg(unix)]
+macro_rules! fbs_options {
+    ($x:expr) => ($x);
+}
+
 impl FileBackingStore {
     /// Create a new file based backing store with the given file.  The file must already exist, and is assumed to have
     /// appropriate permissions.
@@ -148,16 +158,6 @@ impl FileBackingStore {
         FileBackingStore {
             filename: Mutex::new(fname.clone()),
         }
-    }
-
-#[cfg(windows)]
-    fn fix_options(opts: &mut OpenOptions) -> &mut OpenOptions {
-        opts.share_mode(0)
-    }
-
-#[cfg(unix)]
-    fn fix_options(opts: &mut OpenOptions) -> &mut OpenOptions {
-        opts
     }
 
     // It would be nice if we allowed retries and/or sleep times, but that breaks the API.  Right now, let's go with
@@ -218,7 +218,7 @@ impl FileBackingStore {
         let _ = fs::remove_file(newfn.clone()); // If this fails, no big deal.
         { // We want the filesystem lock to drop and the file to close when we leave this block.
             let mut o = OpenOptions::new();
-            let opts = FileBackingStore::fix_options(o.create_new(true).write(true));
+            let opts = fbs_options!(o.create_new(true).write(true));
 
             let newf = opts.open(newfn.clone())?;
             newf.lock_exclusive()?;
@@ -333,7 +333,7 @@ impl BackingStore for FileBackingStore {
                 fs::copy(fname.clone(), oldfn)?;
                 fs::copy(fname.clone(), newfn.clone())?;
                 let mut o = OpenOptions::new();
-                let opts = FileBackingStore::fix_options(o.append(true));
+                let opts = fbs_options!(o.append(true));
                 {
                     let mut f = BufWriter::new(opts.open(newfn.clone())?);
                     f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
