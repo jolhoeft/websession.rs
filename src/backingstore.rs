@@ -275,8 +275,7 @@ impl FileBackingStore {
                         } else if change_pass {
                             if user_recorded {
                                 // Don't write them more than once to the file.
-                                // TODO: add logging
-                                // warn!(format!("{} already found in {}; removing extra line", username, basename));
+                                warn!("{} already found in {}; removing extra line", username, basename);
                             } else {
                                 f.write_all(fixedname.as_bytes())?;
                                 f.write_all(b":")?;
