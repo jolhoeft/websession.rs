@@ -18,6 +18,9 @@ use std::vec::IntoIter;
 use pwhash::bcrypt;
 use fs2::FileExt;
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
@@ -140,14 +143,14 @@ pub struct FileBackingStore {
     filename: Mutex<String>,
 }
 
+#[cfg(unix)]
+macro_rules! fbs_options {
+    ($x:expr) => ($x.mode(0o600).custom_flags(libc::O_NOFOLLOW));
+}
+
 #[cfg(windows)]
 macro_rules! fbs_options {
     ($x:expr) => ($x.share_mode(0));
-}
-
-#[cfg(unix)]
-macro_rules! fbs_options {
-    ($x:expr) => ($x);
 }
 
 impl FileBackingStore {
@@ -164,7 +167,7 @@ impl FileBackingStore {
     // "worse is better" and force the caller to manage this.
     fn load_file(&self) -> Result<String, BackingStoreError> {
         let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-        let name = fname.clone();
+        let name = fname.to_string();
         let mut buf = String::new();
         let mut f = File::open(name)?;
         f.lock_shared()?;
@@ -176,6 +179,7 @@ impl FileBackingStore {
         user.replace("\n", "\u{FFFD}").replace(":", "\u{FFFFD}")
     }
 
+    // Returns the password of the user in question, if they're found (and unlocked, when `fail_if_locked` is `true`).
     fn line_has_user(line: &str, user: &str, fail_if_locked: bool) -> Result<Option<String>, BackingStoreError> {
         let v: Vec<&str> = line.splitn(2, ':').collect();
         let fixed_user = FileBackingStore::fix_username(user);
@@ -200,65 +204,116 @@ impl FileBackingStore {
         }
     }
 
-    // TODO generalize update_user_hash and create_preencrypted to both use the same sort of operations, because this
-    // needs to be atomic.
+    fn create_safe(filename: &str) -> Result<File, BackingStoreError> {
+        let newf;
 
-    fn update_user_hash(&self, user: &str, new_creds: Option<&str>, fail_if_locked: bool) -> Result<(), BackingStoreError> {
-        let mut found_user = false;
-        let pwfile = self.load_file()?;
-        let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
+        let mut opts = OpenOptions::new();
+        let o = fbs_options!(opts.create_new(true).write(true));
+        loop {
+            if match fs::remove_file(&filename) {
+                Ok(_) => true,
+                Err(ref e) if e.kind() == io::ErrorKind::NotFound => true,
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => false,
+                Err(e) => return Err(BackingStoreError::IO(e)),
+            } {
+                match o.open(&filename) {
+                    Ok(x) => {
+                        newf = x;
+                        break;
+                    },
+                    // Keep going...
+                    Err(ref e) if (e.kind() == io::ErrorKind::Interrupted) || (e.kind() == io::ErrorKind::AlreadyExists) => (),
+                    Err(e) => return Err(BackingStoreError::IO(e)),
+                }
+            }
+        }
+        // There might be a race here, but we should be opening the file with secure permissions, so it's probably okay.
+        // N.B., ACLs (under both Linux and Windows) may not be captured properly here.
+        newf.set_permissions(fs::metadata(filename)?.permissions())?;
+        newf.lock_exclusive()?;
+        Ok(newf)
+    }
 
-        let oldfn = fname.to_string() + ".old";
-        let newfn = fname.to_string() + ".new";
-        // Back up the existing db.  XXX We need an atomic way to do this - right now, it might follow symlinks.
-        fs::copy(fname.clone(), oldfn)?;
-        // Work on an intermediate file, in case of some sort of disaster before
-        // we can finish writing.  Try deleting any stale intermediate files
-        // first.
-        let _ = fs::remove_file(newfn.clone()); // If this fails, no big deal.
-        { // We want the filesystem lock to drop and the file to close when we leave this block.
-            let mut o = OpenOptions::new();
-            let opts = fbs_options!(o.create_new(true).write(true));
+    // To make a new user, supply:                    username, Some(password), None
+    // To change an existing user's password, supply: username, Some(password), Some(fail_if_locked)
+    // To delete a user, supply:                      username, None,           _
+    fn update_password_file(&self, username: &str, new_creds: Option<&str>, fail_if_locked: Option<bool>) -> Result<(), BackingStoreError> {
+        let fixedname = FileBackingStore::fix_username(username);
+        let mut user_recorded = false;
 
-            let newf = opts.open(newfn.clone())?;
-            newf.lock_exclusive()?;
-            // XXX This next line needs testing under Windows.  It should work, but I have memories of Windows losing
-            // its mind with open files.
-            newf.set_permissions(fs::metadata(fname.clone())?.permissions())?;
-            let mut f = BufWriter::new(newf);
+        let (create_new, change_pass, fil) = match (new_creds, fail_if_locked) {
+            (Some(_), None) => (true, false, false),
+            (Some(_), Some(fil)) => (false, true, fil),
+            (None, Some(fil)) => (false, false, fil),
+            _ => return Err(BackingStoreError::MissingData),
+        };
 
-            for line in pwfile.lines() {
-                match FileBackingStore::line_has_user(line, user, fail_if_locked)? {
+        let basename = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
+        let oldfn = basename.to_string() + ".old";
+        let newfn = basename.to_string() + ".new";
+
+        let all = self.load_file()?;
+
+        { // In its own block because I want to drop the backup file once it was written.
+            let mut backupf = FileBackingStore::create_safe(&oldfn)?;
+
+            backupf.write(all.as_bytes())?;
+            backupf.flush()?;
+        }
+
+        { // In its own block because I want to drop the new file once it has been written.
+            let mut f = BufWriter::new(FileBackingStore::create_safe(&newfn)?);
+
+            for line in all.lines() {
+                match FileBackingStore::line_has_user(line, username, fil)? {
                     Some(_) => {
-                        if let Some(newhash) = new_creds {
-                            if !found_user {
-                                // They're on this line and we haven't written them yet.
-                                let fixed_user = FileBackingStore::fix_username(user);
-                                f.write_all(fixed_user.as_bytes())?;
+                        if create_new {
+                            // We found them.  That's bad.  Try to clean up.  It might not work.  That's okay.
+                            let _ = fs::remove_file(&oldfn);
+                            let _ = fs::remove_file(&newfn);
+                            return Err(BackingStoreError::UserExists);
+                        } else if change_pass {
+                            if user_recorded {
+                                // Don't write them more than once to the file.
+                                // TODO: add logging
+                                // warn!(format!("{} already found in {}; removing extra line", username, basename));
+                            } else {
+                                f.write_all(fixedname.as_bytes())?;
                                 f.write_all(b":")?;
-                                f.write_all(newhash.as_bytes())?;
+                                // We checked, there are new credentials here.
+                                f.write_all(new_creds.unwrap().as_bytes())?;
                                 f.write_all(b"\n")?;
                             }
-                        }
-                        // We don't want to write this line in any other case.
-                        found_user = true;
+                        } // else we're deleting them, so don't do anything
+                        // Either way, we're good now.
+                        user_recorded = true;
                     },
-                    // Otherwise, it's someone else.  Write them out.
                     None => {
                         f.write_all(line.as_bytes())?;
                         f.write_all(b"\n")?;
                     },
                 }
             }
+
+            if create_new {
+                f.write_all(fixedname.as_bytes())?;
+                f.write_all(b":")?;
+                // We already made sure there were some credentials in here.
+                f.write_all(new_creds.unwrap().as_bytes())?;
+                f.write_all(b"\n")?;
+            } else if !user_recorded {
+                // We didn't find them, but we were supposed to.  Try to clean up, but not very hard.
+                let _ = fs::remove_file(&oldfn);
+                let _ = fs::remove_file(&newfn);
+                return Err(BackingStoreError::NoSuchUser);
+            }
+
+            f.flush()?;
         }
-        if found_user {
-            fs::rename(newfn, fname.to_string())?;
-            Ok(())
-        } else {
-            // Try to clean up after ourselves.  If it doesn't work, whatever.
-            let _ = fs::remove_file(newfn);
-            Err(BackingStoreError::NoSuchUser)
-        }
+
+        // We now have a saved backup and a fully written new file.
+        fs::rename(newfn, basename.to_string())?;
+        Ok(())
     }
 }
 
@@ -279,77 +334,45 @@ impl BackingStore for FileBackingStore {
     }
 
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
-        // get_credentials corrects \n to \u{FFFD}
         let hash = self.get_credentials(user, true)?;
         Ok(bcrypt::verify(plain_cred, &hash))
     }
 
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        // update_user_hash corrects \n to \u{FFFD}
-        self.update_user_hash(user, Some(enc_cred), true)
+        self.update_password_file(user, Some(enc_cred), Some(true))
     }
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
-        // get_credentials corrects \n to \u{FFFD}
         let mut hash = self.get_credentials(user, false)?;
         if !FileBackingStore::hash_is_locked(&hash)? {
             hash.insert(0, '!');
-            // update_user_hash corrects \n to \u{FFFD}
-            return self.update_user_hash(user, Some(&hash), false);
+            self.update_password_file(user, Some(&hash), Some(false))
+        } else { // not an error to lock a locked user
+            Ok(())
         }
-        // not an error to lock a locked user
-        Ok(())
     }
 
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
-        // get_credentials corrects \n to \u{FFFD}
         let hash = self.get_credentials(user, false)?;
         FileBackingStore::hash_is_locked(&hash)
     }
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
-        // get_credentials corrects \n to \u{FFFD}
         let mut hash = self.get_credentials(user, false)?;
         if FileBackingStore::hash_is_locked(&hash)? {
             hash.remove(0);
-            // update_user_hash corrects \n to \u{FFFD}
-            return self.update_user_hash(user, Some(&hash), false);
+            self.update_password_file(user, Some(&hash), Some(false))
+        } else { // not an error to unlock an unlocked user
+            Ok(())
         }
-        // not an error to unlock an unlocked user
-        Ok(())
     }
 
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
-        // The FileBackingStore uses a : delimiter, so : in usernames is bad.  That said, we're now replacing them with
-        // the Unicode replacement character \u{FFFD}, so this is no longer fatal.
-        match self.get_credentials(user, false) {
-            Ok(_) => Err(BackingStoreError::UserExists),
-            Err(BackingStoreError::NoSuchUser) => {
-                let fname = self.filename.lock().map_err(|_| BackingStoreError::Mutex)?;
-                // Try to back up the file before we mess with it.
-                let oldfn = fname.to_string() + ".old";
-                let newfn = fname.to_string() + ".new";
-                // Back up the existing db.  XXX We need an atomic way to do this - right now, it might follow symlinks.
-                fs::copy(fname.clone(), oldfn)?;
-                fs::copy(fname.clone(), newfn.clone())?;
-                let mut o = OpenOptions::new();
-                let opts = fbs_options!(o.append(true));
-                {
-                    let mut f = BufWriter::new(opts.open(newfn.clone())?);
-                    f.write_all(&user.replace("\n", "\u{FFFD}").as_bytes())?;
-                    f.write_all(b":")?;
-                    f.write_all(enc_cred.as_bytes())?;
-                    f.write_all(b"\n")?;
-                }
-                fs::rename(newfn, fname.to_string())?;
-                Ok(())
-            },
-            Err(e) => Err(e),
-        }
+        self.update_password_file(user, Some(enc_cred), None)
     }
 
     fn delete(&self, user: &str) -> Result<(), BackingStoreError> {
-        self.update_user_hash(user, None, false)
+        self.update_password_file(user, None, Some(false))
     }
 
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
