@@ -182,7 +182,7 @@ impl FileBackingStore {
         if v.len() < 2 { // it's not okay for users to have empty passwords
             Err(BackingStoreError::MissingData)
         } else if v[0] == fixed_user {
-            if fail_if_locked && FileBackingStore::hash_is_locked(v[1])? {
+            if fail_if_locked && FileBackingStore::hash_is_locked(v[1]) {
                 Err(BackingStoreError::Locked)
             } else {
                 Ok(Some(v[1].to_string()))
@@ -192,12 +192,8 @@ impl FileBackingStore {
         }
     }
 
-    fn hash_is_locked(hash: &str) -> Result<bool, BackingStoreError> {
-        let mut chars = hash.chars();
-        match chars.next() {
-            Some(c) => Ok(c == '!'),
-            None => Err(BackingStoreError::MissingData),
-        }
+    fn hash_is_locked(hash: &str) -> bool {
+        hash.starts_with("!")
     }
 
     // Fix usernames so that no illegal characters or strings enter the backing store.  I'd like all `BackingStore`
@@ -343,7 +339,7 @@ impl BackingStore for FileBackingStore {
 
     fn lock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = self.get_credentials(user, false)?;
-        if !FileBackingStore::hash_is_locked(&hash)? {
+        if !FileBackingStore::hash_is_locked(&hash) {
             hash.insert(0, '!');
             self.update_password_file(user, Some(&hash), Some(false))
         } else { // not an error to lock a locked user
@@ -353,12 +349,13 @@ impl BackingStore for FileBackingStore {
 
     fn is_locked(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hash = self.get_credentials(user, false)?;
-        FileBackingStore::hash_is_locked(&hash)
+        Ok(FileBackingStore::hash_is_locked(&hash))
     }
 
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError> {
         let mut hash = self.get_credentials(user, false)?;
-        if FileBackingStore::hash_is_locked(&hash)? {
+        if FileBackingStore::hash_is_locked(&hash) {
+            // It must have at least 1 char or it couldn't be locked.
             hash.remove(0);
             self.update_password_file(user, Some(&hash), Some(false))
         } else { // not an error to unlock an unlocked user
@@ -397,7 +394,7 @@ impl BackingStore for FileBackingStore {
             let v: Vec<&str> = line.split(':').collect();
             if v.len() > 1 {
                 if v[0] == fixeduser {
-                    return match FileBackingStore::hash_is_locked(v[1])? {
+                    return match FileBackingStore::hash_is_locked(v[1]) {
                         true => Err(BackingStoreError::Locked),
                         false => Ok(true),
                     };
