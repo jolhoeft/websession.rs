@@ -3,10 +3,17 @@
 
 use sessionpolicy::SessionPolicy;
 use token::Token;
+use std::fmt;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ConnectionSignature {
     pub token: Token,
+}
+
+impl fmt::Display for ConnectionSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.token.fmt(f)
+    }
 }
 
 impl ConnectionSignature {
