@@ -314,7 +314,8 @@ impl FileBackingStore {
 
 impl BackingStore for FileBackingStore {
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
-        Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(12u32), ..Default::default() }, plain)?)
+        // Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(12u32), ..Default::default() }, plain)?)
+        Ok(bcrypt::hash(plain)?)
     }
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
@@ -450,7 +451,8 @@ impl MemoryBackingStore {
 
 impl BackingStore for MemoryBackingStore {
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
-        Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(12u32), ..Default::default() }, plain)?)
+        // Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(12u32), ..Default::default() }, plain)?)
+        Ok(bcrypt::hash(plain)?)
     }
 
     fn get_credentials(&self, user: &str, fail_if_locked: bool) -> Result<String, BackingStoreError> {
