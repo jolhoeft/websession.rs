@@ -22,6 +22,7 @@ rpassword = "2.0"
 [dev-dependencies]
 tempdir = "0.3"
 rand = "0.4"
+bencher = "0.1"
 
 [lib]
 name = "websession"
@@ -30,3 +31,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "ws_mgr"
 path = "src/ws_mgr.rs"
+
+[[bench]]
+name = "benchmarks"
+harness = false
