@@ -199,6 +199,10 @@ impl Authenticator {
     /// Disable a user's ability to login.  The password will not be changed,
     /// but all login attempts will fail.
     pub fn lock_user(&self, user: &str) -> Result<(), AuthError> {
+        match self.mapping.lock() {
+            Ok(mut hashmap) => hashmap.retain(|_, ref v| user != *v),
+            Err(mut poisoned) => poisoned.get_mut().retain(|_, ref v| user != *v),
+        };
         self.backing_store.lock(user).map_err(|e| AuthError::from(e))
     }
 
