@@ -114,7 +114,7 @@ impl Authenticator {
     pub fn new(backing_store: Box<dyn BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy) -> Authenticator {
         Authenticator {
             sess_mgr: SessionManager::new(expiration, policy),
-            backing_store: backing_store,
+            backing_store,
             // cookie_name: cookie_name.to_string(),
             mapping: Mutex::new(HashMap::new()),
         }
@@ -124,7 +124,7 @@ impl Authenticator {
     /// `user`. Does not change any signatures associated with the
     /// user.
     pub fn verify(&self, user: &str, credentials: &str) -> Result<bool, AuthError> {
-        self.backing_store.verify(user, credentials).map_err(|e| AuthError::from(e))
+        self.backing_store.verify(user, credentials).map_err(AuthError::from)
     }
 
     // should check policy
@@ -147,7 +147,7 @@ impl Authenticator {
                 Ok(false) => Err(AuthError::Unauthorized),
                 Err(e) => Err(e),
             },
-            Err(e) => Err(From::from(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -167,8 +167,7 @@ impl Authenticator {
         match self.sess_mgr.is_expired(signature) {
             Ok(true) => Err(AuthError::Expired),
             Ok(false) => match self.mapping.lock() {
-                Ok(hashmap) => Ok(hashmap.get(&signature.token.to_string())
-                    .map(|s| s.clone())), // this is to unborrow the username
+                Ok(hashmap) => Ok(hashmap.get(&signature.token.to_string()).cloned()),
                 Err(_) => Err(AuthError::Mutex),
             },
             Err(e) => Err(e),
@@ -203,17 +202,17 @@ impl Authenticator {
             Ok(mut hashmap) => hashmap.retain(|_, ref v| user != *v),
             Err(mut poisoned) => poisoned.get_mut().retain(|_, ref v| user != *v),
         };
-        self.backing_store.lock(user).map_err(|e| AuthError::from(e))
+        self.backing_store.lock(user).map_err(AuthError::from)
     }
 
     /// Check if the user's account is locked.
     pub fn is_locked(&self, user: &str) -> Result<bool, AuthError> {
-        self.backing_store.is_locked(user).map_err(|e| AuthError::from(e))
+        self.backing_store.is_locked(user).map_err(AuthError::from)
     }
 
     /// Re-enable the user's account.  The old password will remain valid.
     pub fn unlock(&self, user: &str) -> Result<(), AuthError> {
-        self.backing_store.unlock(user).map_err(|e| AuthError::from(e))
+        self.backing_store.unlock(user).map_err(AuthError::from)
     }
 
     /// Create a new user with the given credentials.  Credentials should
@@ -233,30 +232,30 @@ impl Authenticator {
     /// Delete the given user.  Any stored credentials will be deleted too, and
     /// will need to be provided again if the user is later re-created.
     pub fn delete(&self, user: &str) -> Result<(), AuthError> {
-        self.backing_store.delete(user).map_err(|e| AuthError::from(e))
+        self.backing_store.delete(user).map_err(AuthError::from)
     }
 
     /// This is the main driver.  It returns a signature that contains the
     /// current value for the cookie, or an error if something went wrong.  The
     /// returned signature may be different from the one provided.
     pub fn run(&self, signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
-        self.sess_mgr.start(signature).map_err(|err| AuthError::from(err))
+        self.sess_mgr.start(signature).map_err(AuthError::from)
     }
 
     /// Return a Vec of usernames.
     pub fn users(&self) -> Result<Vec<String>, AuthError> {
-        self.backing_store.users().map_err(|e| AuthError::from(e))
+        self.backing_store.users().map_err(AuthError::from)
     }
 
     /// Return an iterator over users.
     pub fn users_iter(&self) -> Result<IntoIter<String>, AuthError> {
-        self.backing_store.users_iter().map_err(|e| AuthError::from(e))
+        self.backing_store.users_iter().map_err(AuthError::from)
     }
 
     /// Identify whether or not the user already exists in the backing store.
     /// May return an `AuthError````, in particular, `AuthError::Locked`, which
     /// means that the user exists but the account is locked.
     pub fn check_user(&self, user: &str) -> Result<bool, AuthError> {
-        self.backing_store.check_user(user).map_err(|e| AuthError::from(e))
+        self.backing_store.check_user(user).map_err(AuthError::from)
     }
 }

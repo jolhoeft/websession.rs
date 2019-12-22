@@ -9,13 +9,13 @@ use websession::{Authenticator, SessionPolicy};
 use websession::backingstore::FileBackingStore;
 use clap::{App, Arg, SubCommand, AppSettings};
 
-const ADDUSER: &'static str = "adduser";
-const DELUSER: &'static str = "deluser";
-const LOCK:    &'static str = "lock";
-const UNLOCK:  &'static str = "unlock";
-const PASSWD:  &'static str = "passwd";
-const INFO:    &'static str = "info";
-const ID:      &'static str = "id";
+const ADDUSER: & str = "adduser";
+const DELUSER: & str = "deluser";
+const LOCK:    & str = "lock";
+const UNLOCK:  & str = "unlock";
+const PASSWD:  & str = "passwd";
+const INFO:    & str = "info";
+const ID:      & str = "id";
 
 fn get_password() -> String {
     let mut pw;

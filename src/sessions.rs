@@ -41,8 +41,8 @@ pub struct SessionManager {
 impl SessionManager {
     pub fn new(expiration: Duration, policy: SessionPolicy) -> SessionManager {
         SessionManager {
-            expiration: expiration,
-            policy: policy,
+            expiration,
+            policy,
             // cookie_dir: "cookies".to_string(),
             sessions: Mutex::new(HashMap::new()),
         }

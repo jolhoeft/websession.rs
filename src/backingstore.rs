@@ -121,7 +121,7 @@ pub trait BackingStore : Debug {
     /// Only one of `users` or `users_iter` needs to be implemented, as the default implementations will take care of
     /// the other.  However, there may be performance reasons to implement both.
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
-        self.users_iter().map(|v| v.map(|u| u.clone()).collect())
+        self.users_iter().map(|v| v.collect())
     }
 
     /// Return an Iterator over the user names.  `users` may be more convenient when there are small numbers of users.
@@ -158,7 +158,7 @@ impl FileBackingStore {
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
-            filename: Mutex::new(fname.clone()),
+            filename: Mutex::new(fname),
         }
     }
 
@@ -193,7 +193,7 @@ impl FileBackingStore {
     }
 
     fn hash_is_locked(hash: &str) -> bool {
-        hash.starts_with("!")
+        hash.starts_with('!')
     }
 
     // Fix usernames so that no illegal characters or strings enter the backing store.  I'd like all `BackingStore`
@@ -253,7 +253,7 @@ impl FileBackingStore {
         { // In its own block because I want to drop the backup file once it was written.
             let mut backupf = FileBackingStore::create_safe(&oldfn)?;
 
-            backupf.write(all.as_bytes())?;
+            backupf.write_all(all.as_bytes())?;
             backupf.flush()?;
         }
 
@@ -379,7 +379,7 @@ impl BackingStore for FileBackingStore {
         let pwfile = self.load_file()?;
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
-            if v.len() == 0 {
+            if v.is_empty() {
                 continue;
             } else {
                 users.push(v[0].to_string());
@@ -393,12 +393,11 @@ impl BackingStore for FileBackingStore {
         let fixeduser = FileBackingStore::fix_username(user);
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
-            if v.len() > 1 {
-                if v[0] == fixeduser {
-                    return match FileBackingStore::hash_is_locked(v[1]) {
-                        true => Err(BackingStoreError::Locked),
-                        false => Ok(true),
-                    };
+            if (v.len() > 1) && (v[0] == fixeduser) {
+                if FileBackingStore::hash_is_locked(v[1]) {
+                    return Err(BackingStoreError::Locked);
+                } else {
+                    return Ok(true);
                 }
             }
         }
@@ -414,7 +413,7 @@ struct MemoryEntry {
 
 /// In memory backing store. Does not persist across restarts. Mostly
 /// useful for testing.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MemoryBackingStore {
     users: Mutex<HashMap<String, MemoryEntry>>,
 }
@@ -476,12 +475,13 @@ impl BackingStore for MemoryBackingStore {
         let mut hashmap =
             self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         match hashmap.get_mut(user) {
-            Some(entry) => match entry.locked {
-                true => Err(BackingStoreError::Locked),
-                false => {
+            Some(entry) => {
+                if entry.locked {
+                    Err(BackingStoreError::Locked)
+                } else {
                     entry.credentials = enc_cred.to_string();
                     Ok(())
-                },
+                }
             },
             None => Err(BackingStoreError::NoSuchUser),
         }
@@ -541,15 +541,16 @@ impl BackingStore for MemoryBackingStore {
 
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        Ok(hashmap.keys().map(|k| k.clone()).collect::<Vec<String>>())
+        Ok(hashmap.keys().cloned().collect::<Vec<String>>())
     }
 
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         if let Some(u) = hashmap.get(user) {
-            match u.locked {
-                true => Err(BackingStoreError::Locked),
-                false => Ok(true),
+            if u.locked {
+                Err(BackingStoreError::Locked)
+            } else {
+                Ok(true)
             }
         } else {
             Ok(false)
