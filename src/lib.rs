@@ -78,7 +78,7 @@ impl Error for AuthError {
         }
     }
 
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn (Error)> {
         match *self {
             AuthError::Hash(ref e) => Some(e),
             AuthError::IO(ref e) => Some(e),
@@ -100,7 +100,7 @@ impl fmt::Display for AuthError {
 #[derive(Debug)]
 pub struct Authenticator {
     sess_mgr: SessionManager,
-    backing_store: Box<BackingStore + Send + Sync>,
+    backing_store: Box<dyn BackingStore + Send + Sync>,
     // Do we need this, or does the app just hang onto this for us?
     // cookie_name: String,
     mapping: Mutex<HashMap<String, String>>,
@@ -111,7 +111,7 @@ impl Authenticator {
     /// Create a new Authenticator. `expiration` is how long a session
     /// should live w/o activity. Activity resets the clock on a
     /// session.
-    pub fn new(backing_store: Box<BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy) -> Authenticator {
+    pub fn new(backing_store: Box<dyn BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy) -> Authenticator {
         Authenticator {
             sess_mgr: SessionManager::new(expiration, policy),
             backing_store: backing_store,
@@ -140,7 +140,7 @@ impl Authenticator {
             },
             Ok(false) => match self.verify(user, credentials) {
                 Ok(true) => {
-                    try!(self.mapping.lock().map_err(|_| AuthError::Mutex))
+                    self.mapping.lock().map_err(|_| AuthError::Mutex)?
                         .insert(signature.token.to_string(), user.to_string());
                     Ok(())
                 },

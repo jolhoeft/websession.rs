@@ -1,7 +1,6 @@
 extern crate websession;
 extern crate time;
 
-// This is totally out of hand.
 use websession::Authenticator;
 use websession::backingstore::FileBackingStore;
 use websession::sessionpolicy::SessionPolicy;
