@@ -729,9 +729,9 @@ mod test {
             Examine,
             Verify,
         }
-        impl rand::Rand for Things {
-            fn rand<R: Rng>(rng: &mut R) -> Self {
-                match rng.gen_range(0, 7) {
+        impl Things {
+            fn random() -> Self {
+                match rand::thread_rng().gen_range(0, 7) {
                     0 => Things::Add,
                     1 => Things::Lock,
                     2 => Things::Unlock,
@@ -745,7 +745,7 @@ mod test {
 
         for _ in [ 1 .. 10 ].iter() {
             for (i, x) in names.iter().enumerate() {
-                match rand::random::<Things>() {
+                match Things::random() {
                     Things::Add => if added.contains(&x.as_str()) {
                         assert_eq!(fbs.create_plain(&x, &passwords[i]), Err(BackingStoreError::UserExists));
                     } else {

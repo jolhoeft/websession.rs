@@ -11,7 +11,6 @@
 //! ## Example
 //!
 //! See the tests for examples of use.
-extern crate time;
 extern crate uuid;
 #[cfg(feature = "hyper")]
 extern crate hyper;
@@ -29,7 +28,7 @@ pub mod sessionpolicy;
 pub use self::connectionsignature::ConnectionSignature;
 
 use std::collections::HashMap;
-use time::Duration;
+use std::time::Duration;
 use std::error::Error;
 use std::{fmt, io};
 use std::sync::Mutex;
