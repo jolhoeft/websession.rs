@@ -1,5 +1,9 @@
 # websession.rs
+<img src="https://github.com/jolhoeft/websession.rs/workflows/Rust/badge.svg" align="right" alt="build status">
+
 Web Session Support for Rust
+
+
 
 ## Overview
 
