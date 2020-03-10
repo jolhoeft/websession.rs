@@ -1,12 +1,10 @@
-extern crate time;
-
 #[cfg(feature = "hyper")]
 extern crate hyper;
 
 use connectionsignature::ConnectionSignature;
 use token::Token;
 use sessionpolicy::SessionPolicy;
-use time::{Timespec, Duration};
+use std::time::{Instant, Duration};
 use std::collections::HashMap;
 use AuthError;
 
@@ -16,7 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug)]
 struct Session {
-    last_access: Timespec,
+    last_access: Instant,
     // We're not using this right now, but will need it when we match policies
     // signature: ConnectionSignature,
 }
@@ -24,7 +22,7 @@ struct Session {
 impl Session {
     fn new(_: &ConnectionSignature) -> Session {
         Session {
-            last_access: time::now().to_timespec(),
+            last_access: Instant::now(),
             // signature: signature.clone(),
         }
     }
@@ -66,7 +64,7 @@ impl SessionManager {
     fn is_expired_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> bool {
         let rv = match hashmap.get(signature) {
             Some(sess) => {
-                (time::now().to_timespec() - sess.last_access) >= self.expiration
+                sess.last_access.elapsed() >= self.expiration
             }
             None => true
         };
@@ -98,7 +96,7 @@ impl SessionManager {
             hashmap.insert(signature.clone(), Session::new(&signature));
         } else {
             match hashmap.get_mut(&signature) {
-                Some(sess) => sess.last_access = time::now().to_timespec(),
+                Some(sess) => sess.last_access = Instant::now(),
                 None => return Err(AuthError::InternalConsistency), // this should be impossible
             }
         }

@@ -1,9 +1,8 @@
 extern crate websession;
 extern crate clap;
 extern crate rpassword;
-extern crate time;
 
-use time::Duration;
+use std::time::Duration;
 use rpassword::prompt_password_stdout;
 use websession::{Authenticator, SessionPolicy};
 use websession::backingstore::FileBackingStore;
@@ -70,7 +69,7 @@ pub fn main() {
     let session_policy = SessionPolicy::new(&session_salt);
     let authenticator =
         Authenticator::new(Box::new(FileBackingStore::new("./data/passwd")),
-        Duration::hours(1), session_policy);
+        Duration::from_secs(3600), session_policy);
 
     match matches.subcommand() {
         (ADDUSER, Some(idm)) => {
