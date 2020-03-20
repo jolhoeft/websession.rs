@@ -1,6 +1,8 @@
 #![crate_type = "lib"]
 #![crate_name = "websession"]
 
+#![forbid(unsafe_code)]
+
 //! # Websession
 //!
 //! Websession provides session and user support for web applications.  It
@@ -14,9 +16,9 @@
 extern crate uuid;
 #[cfg(feature = "hyper")]
 extern crate hyper;
-extern crate crypto;
 extern crate pwhash;
 extern crate fs2;
+extern crate sha2;
 #[macro_use] extern crate log;
 
 pub mod sessions;

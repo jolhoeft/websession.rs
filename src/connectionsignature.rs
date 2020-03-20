@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 #[cfg(feature = "hyper")] use hyper::server::request::Request;
 #[cfg(feature = "hyper")] use hyper::header::Cookie;
 

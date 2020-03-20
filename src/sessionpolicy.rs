@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use connectionsignature::ConnectionSignature;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]

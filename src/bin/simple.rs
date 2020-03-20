@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 extern crate websession;
 
 use websession::Authenticator;

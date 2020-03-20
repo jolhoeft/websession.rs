@@ -3,6 +3,8 @@
 //! The BackingStore trait provides the interfaces for storing user credentials. Default implementations are provided
 //! for plain text files and in-memory storage.
 
+#![forbid(unsafe_code)]
+
 extern crate libc;
 extern crate pwhash;
 extern crate fs2;

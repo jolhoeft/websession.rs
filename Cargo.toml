@@ -12,11 +12,12 @@ hyper = { version = "0.10", optional = true }
 pwhash = "^0.3"
 uuid = { version = "0.8", features = [ "v4" ] }
 libc = "0.2"
-rust-crypto = "^0.2"
 fs2 = "0.4"
 log = "0.4"
 clap = "2.27"
 rpassword = "4.0"
+digest = "0.8"
+sha2 = "0.8"
 
 [dev-dependencies]
 tempdir = "0.3"

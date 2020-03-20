@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 #[cfg(feature = "hyper")]
 extern crate hyper;
 

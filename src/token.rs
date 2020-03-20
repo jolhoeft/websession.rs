@@ -1,11 +1,11 @@
+#![forbid(unsafe_code)]
+
 extern crate uuid;
-extern crate crypto;
 
 use uuid::Uuid;
 use std::fmt;
 use std::ops::Deref;
-use crypto::digest::Digest;
-use crypto::sha2::Sha256;
+use sha2::{Sha256, Digest};
 
 #[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {
@@ -17,10 +17,10 @@ impl Token {
     // lib.rs?
     pub fn new(secret: &str) -> Token {
         let mut hasher = Sha256::new();
-        hasher.input_str(secret);
-        hasher.input_str(Uuid::new_v4().to_string().deref());
+        hasher.input(secret);
+        hasher.input(Uuid::new_v4().to_string().deref());
         Token {
-            key: hasher.result_str(),
+            key: format!("{:x}", hasher.result()),
         }
     }
 

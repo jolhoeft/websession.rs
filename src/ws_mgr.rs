@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 extern crate websession;
 extern crate clap;
 extern crate rpassword;
