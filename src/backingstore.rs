@@ -809,4 +809,13 @@ mod test {
             }
         }
     }
+
+    /// Checks a known ciphertext against a known plaintext
+    #[test]
+    fn check_ciphertext() {
+        let (fbs, _temp) = make_filebackingstore();
+
+        assert!(fbs.create_preencrypted("user", "$2b$08$u5hkiF.YyDvO/rBYf/02eezYvWj/rxRGZISzqBL3KtgL.NECyTUom").is_ok());
+        assert!(fbs.verify("user", "password").is_ok());
+    }
 }
