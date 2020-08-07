@@ -567,16 +567,17 @@ impl BackingStore for MemoryBackingStore {
 // plaintext or ciphertext.
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
+    extern crate tempfile;
     extern crate rand;
 
     use backingstore::*;
     use std::fs::File;
     use std::collections::HashSet;
     use backingstore::test::rand::Rng;
+    use self::tempfile::TempDir;
 
-    fn make_filebackingstore() -> (FileBackingStore, tempdir::TempDir) {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+    fn make_filebackingstore() -> (FileBackingStore, TempDir) {
+        let fullpath = TempDir::new().unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
         let _f = File::create(path);
