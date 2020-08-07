@@ -12,7 +12,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        rust_versions: ["stable", "1.38.0"]
         os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check out source code
@@ -20,7 +19,7 @@ jobs:
 
       - name: Install Rust
         run: |
-          rustup toolchain install --no-self-update ${{ matrix.rust_versions }}
+          rustup toolchain install --no-self-update stable
           rustup default stable
 
       - name: Build
