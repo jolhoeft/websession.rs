@@ -69,16 +69,6 @@ impl From<BackingStoreError> for AuthError {
 }
 
 impl Error for AuthError {
-    fn description(&self) -> &str {
-        match *self {
-            AuthError::Unauthorized => "User not authorized",
-            AuthError::Expired => "Session Expired",
-            AuthError::IO(ref err) => err.description(),
-            AuthError::Hash(ref err) => err.description(),
-            _ => "Internal Error",
-        }
-    }
-
     fn cause(&self) -> Option<&dyn (Error)> {
         match *self {
             AuthError::Hash(ref e) => Some(e),
@@ -90,7 +80,7 @@ impl Error for AuthError {
 
 impl fmt::Display for AuthError {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        write!(out, "{}", self.description())
+        write!(out, "{}", self.to_string())
     }
 }
 
