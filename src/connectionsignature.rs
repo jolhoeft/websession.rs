@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "hyper")] use hyper::server::request::Request;
-#[cfg(feature = "hyper")] use hyper::header::Cookie;
+#[cfg(feature = "hyper")]
+use hyper::header::Cookie;
+#[cfg(feature = "hyper")]
+use hyper::server::request::Request;
 
 use sessionpolicy::SessionPolicy;
-use token::Token;
 use std::fmt;
+use token::Token;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ConnectionSignature {
@@ -26,7 +28,9 @@ impl ConnectionSignature {
     }
 
     pub fn new_from_policy(policy: &SessionPolicy) -> ConnectionSignature {
-        ConnectionSignature { token: Token::new(&policy.salt) }
+        ConnectionSignature {
+            token: Token::new(&policy.salt),
+        }
     }
 
     pub fn get_token(&self) -> Token {
@@ -34,7 +38,12 @@ impl ConnectionSignature {
     }
 
     #[cfg(feature = "hyper")]
-    pub fn new_hyper(req: &Request, cookie_name: &str, key: &[u8], policy: &SessionPolicy) -> ConnectionSignature {
+    pub fn new_hyper(
+        req: &Request,
+        cookie_name: &str,
+        key: &[u8],
+        policy: &SessionPolicy,
+    ) -> ConnectionSignature {
         // for unsecured cookies key = [0u8; 32], i.e. 32 zero bytes
         // Warning: this is untested
         match req.headers.get::<Cookie>() {
@@ -46,4 +55,3 @@ impl ConnectionSignature {
         }
     }
 }
-

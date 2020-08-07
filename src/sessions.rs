@@ -4,10 +4,10 @@
 extern crate hyper;
 
 use connectionsignature::ConnectionSignature;
-use token::Token;
 use sessionpolicy::SessionPolicy;
-use std::time::{Instant, Duration};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use token::Token;
 use AuthError;
 
 // use std::net::SocketAddr;
@@ -63,12 +63,14 @@ impl SessionManager {
         Ok(self.is_expired_locked(signature, &mut hashmap))
     }
 
-    fn is_expired_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> bool {
+    fn is_expired_locked(
+        &self,
+        signature: &ConnectionSignature,
+        hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>,
+    ) -> bool {
         let rv = match hashmap.get(signature) {
-            Some(sess) => {
-                sess.last_access.elapsed() >= self.expiration
-            }
-            None => true
+            Some(sess) => sess.last_access.elapsed() >= self.expiration,
+            None => true,
         };
         if rv {
             self.stop_locked(&signature, hashmap);
@@ -77,7 +79,11 @@ impl SessionManager {
         rv
     }
 
-    fn stop_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> Option<Session> {
+    fn stop_locked(
+        &self,
+        signature: &ConnectionSignature,
+        hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>,
+    ) -> Option<Session> {
         hashmap.remove(signature)
     }
 
@@ -89,7 +95,10 @@ impl SessionManager {
         };
     }
 
-    pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
+    pub fn start(
+        &self,
+        mut signature: ConnectionSignature,
+    ) -> Result<ConnectionSignature, AuthError> {
         let mut hashmap = self.sessions.lock().map_err(|_| AuthError::Mutex)?;
         let need_insert = self.is_expired_locked(&signature, &mut hashmap);
 

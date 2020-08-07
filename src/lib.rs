@@ -1,6 +1,5 @@
 #![crate_type = "lib"]
 #![crate_name = "websession"]
-
 #![forbid(unsafe_code)]
 
 //! # Websession
@@ -13,31 +12,32 @@
 //! ## Example
 //!
 //! See the tests for examples of use.
-extern crate uuid;
+extern crate fs2;
 #[cfg(feature = "hyper")]
 extern crate hyper;
 extern crate pwhash;
-extern crate fs2;
 extern crate sha2;
-#[macro_use] extern crate log;
+extern crate uuid;
+#[macro_use]
+extern crate log;
 
-pub mod sessions;
 pub mod backingstore;
 pub mod connectionsignature;
-pub mod token;
 pub mod sessionpolicy;
+pub mod sessions;
+pub mod token;
 
 pub use self::connectionsignature::ConnectionSignature;
 
-use std::collections::HashMap;
-use std::time::Duration;
-use std::error::Error;
-use std::{fmt, io};
-use std::sync::Mutex;
-use std::vec::IntoIter;
 use self::backingstore::{BackingStore, BackingStoreError};
-use self::sessions::SessionManager;
 pub use self::sessionpolicy::SessionPolicy;
+use self::sessions::SessionManager;
+use std::collections::HashMap;
+use std::error::Error;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::vec::IntoIter;
+use std::{fmt, io};
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -73,7 +73,7 @@ impl Error for AuthError {
         match *self {
             AuthError::Hash(ref e) => Some(e),
             AuthError::IO(ref e) => Some(e),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -102,7 +102,11 @@ impl Authenticator {
     /// Create a new Authenticator. `expiration` is how long a session
     /// should live w/o activity. Activity resets the clock on a
     /// session.
-    pub fn new(backing_store: Box<dyn BackingStore + Send + Sync>, expiration: Duration, policy: SessionPolicy) -> Authenticator {
+    pub fn new(
+        backing_store: Box<dyn BackingStore + Send + Sync>,
+        expiration: Duration,
+        policy: SessionPolicy,
+    ) -> Authenticator {
         Authenticator {
             sess_mgr: SessionManager::new(expiration, policy),
             backing_store,
@@ -115,7 +119,9 @@ impl Authenticator {
     /// `user`. Does not change any signatures associated with the
     /// user.
     pub fn verify(&self, user: &str, credentials: &str) -> Result<bool, AuthError> {
-        self.backing_store.verify(user, credentials).map_err(AuthError::from)
+        self.backing_store
+            .verify(user, credentials)
+            .map_err(AuthError::from)
     }
 
     // should check policy
@@ -123,18 +129,25 @@ impl Authenticator {
     /// `user`. If they do, associate the user with the given
     /// `signature`. Credentials are as provided by the user. Plain
     /// text in the case of passwords.
-    pub fn login(&self, user: &str, credentials: &str, signature: &ConnectionSignature) -> Result<(), AuthError> {
+    pub fn login(
+        &self,
+        user: &str,
+        credentials: &str,
+        signature: &ConnectionSignature,
+    ) -> Result<(), AuthError> {
         match self.sess_mgr.is_expired(signature) {
             Ok(true) => {
                 self.sess_mgr.stop(signature);
                 Err(AuthError::Expired)
-            },
+            }
             Ok(false) => match self.verify(user, credentials) {
                 Ok(true) => {
-                    self.mapping.lock().map_err(|_| AuthError::Mutex)?
+                    self.mapping
+                        .lock()
+                        .map_err(|_| AuthError::Mutex)?
                         .insert(signature.token.to_string(), user.to_string());
                     Ok(())
-                },
+                }
                 Ok(false) => Err(AuthError::Unauthorized),
                 Err(e) => Err(e),
             },
@@ -181,7 +194,9 @@ impl Authenticator {
     /// plain text, which will then be encrypted according to the BackingStore's
     /// implementation.
     pub fn update_credentials_plain(&self, user: &str, plain_creds: &str) -> Result<(), AuthError> {
-        Ok(self.backing_store.update_credentials_plain(user, plain_creds)?)
+        Ok(self
+            .backing_store
+            .update_credentials_plain(user, plain_creds)?)
     }
 
     // These doesn't take a ConnectionSignature because maybe we want to

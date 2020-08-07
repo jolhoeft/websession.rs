@@ -2,10 +2,10 @@
 
 extern crate uuid;
 
-use uuid::Uuid;
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::ops::Deref;
-use sha2::{Sha256, Digest};
+use uuid::Uuid;
 
 #[derive(Eq, PartialEq, Debug, Clone, Hash)]
 pub struct Token {
