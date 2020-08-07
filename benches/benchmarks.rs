@@ -7,7 +7,7 @@ use pwhash::bcrypt;
 
 fn rounds_8_encrypt(bench: &mut Bencher) {
     bench.iter(|| {
-        let hash = bcrypt::hash("password").unwrap();
+        let _hash = bcrypt::hash("password").unwrap();
     })
 }
 
