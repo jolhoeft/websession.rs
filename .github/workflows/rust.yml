@@ -8,44 +8,21 @@ on:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out source code
-        uses: actions/checkout@master
-
-      - name: Build
-        run: cargo build --verbose
-
-  test:
-    name: Test
+    name: Build, Test, Bench
     runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        rust_versions: ["stable", "1.38.0"]
-        os: [ubuntu-latest, windows-latest]
-      steps:
-        - name: Check out source code
-          uses: actions/checkout@master
-
-        - name: Install Rust
-          run: |
-            rustup toolchain install --no-self-update ${{ matrix.rust_versions }}
-            rustup default stable
-
-    - name: Run tests
-      run: cargo test --verbose
-
-  bench:
-    runs-on: ubuntu-latest
     steps:
       - name: Check out source code
         uses: actions/checkout@master
 
       - name: Install Rust
-         run: |
-           rustup toolchain install --no-self-update stable
-           rustup default stable
+        run: |
+          rustup toolchain install --no-self-update ${{ matrix.rust_versions }}
+          rustup default stable
 
-      - name: Run benchmark
-        run: cargo bench
+      - name: Build
+        run: cargo build --features=hyper --verbose
+
+      - name: Run tests
+        run: |
+          cargo test --features=hyper --verbose
+          cargo bench

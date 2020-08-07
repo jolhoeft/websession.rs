@@ -3,7 +3,7 @@
 #[cfg(feature = "hyper")]
 use hyper::header::Cookie;
 #[cfg(feature = "hyper")]
-use hyper::server::request::Request;
+use hyper::server::Request;
 
 use sessionpolicy::SessionPolicy;
 use std::fmt;
@@ -41,14 +41,13 @@ impl ConnectionSignature {
     pub fn new_hyper(
         req: &Request,
         cookie_name: &str,
-        key: &[u8],
         policy: &SessionPolicy,
     ) -> ConnectionSignature {
         // for unsecured cookies key = [0u8; 32], i.e. 32 zero bytes
         // Warning: this is untested
-        match req.headers.get::<Cookie>() {
-            Some(c) => match c.to_cookie_jar(key).find(cookie_name) {
-                Some(c) => ConnectionSignature::new(&c.value),
+        match req.headers().get::<Cookie>() {
+            Some(c) => match c.get(cookie_name) {
+                Some(c) => ConnectionSignature { token: Token::new(c) },
                 None => ConnectionSignature::new_from_policy(policy),
             },
             None => ConnectionSignature::new_from_policy(policy),
