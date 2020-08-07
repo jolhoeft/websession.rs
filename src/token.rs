@@ -17,10 +17,10 @@ impl Token {
     // lib.rs?
     pub fn new(secret: &str) -> Token {
         let mut hasher = Sha256::new();
-        hasher.input(secret);
-        hasher.input(Uuid::new_v4().to_string().deref());
+        hasher.update(secret);
+        hasher.update(Uuid::new_v4().to_string().deref());
         Token {
-            key: format!("{:x}", hasher.result()),
+            key: format!("{:x}", hasher.finalize()),
         }
     }
 
