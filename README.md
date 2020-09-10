@@ -65,10 +65,10 @@ transparently migrate users as they authenticate.
 
 As data points, under Linux:
 
-|        CPU       | Frequency |  Mode  | Nanoseconds per Iteration     |
+|        CPU       | Frequency |  Mode  |   Nanoseconds per Iteration   |
 | ---------------- | --------- | ------ | ----------------------------- |
-| Core 2 Duo T9300 | 2.50 GHz  | 32-bit | 20,881,257 (&plusmn; 247,164) |
-| Core i7-4770L    | 3.50 GHz  | 64-bit | 13,961,105 (&plusmn; 202,267) |
+| Core 2 Duo T9300 |  2.50 GHz | 32-bit | 20,881,257 (&plusmn; 247,164) |
+| Core i7-4770L    |  3.50 GHz | 64-bit | 13,961,105 (&plusmn; 202,267) |
 
 (Additional data points are welcomed.)
 
