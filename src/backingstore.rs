@@ -633,7 +633,7 @@ mod test {
     extern crate tempfile;
 
     use tempfile::TempDir;
-    use test::rand::Rng;
+    use rand::Rng;
     use crate::backingstore::*;
     use std::collections::HashSet;
     use std::fs::File;
