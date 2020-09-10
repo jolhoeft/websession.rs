@@ -4,27 +4,21 @@
 
 Web Session Support for Rust
 
-
-
 ## Overview
 
 `websession` provides a simple interface to web session management, with
-reliably encrypted passwords (currently `bcrypt`) and automatically expiring
-identifiers.
+reliably encrypted passwords (currently `bcrypt`) and session identifiers
+that automatically renew on activity or time out and expire with inactivity.
 
-Users can be identified by any UTF-8, including a username, an email
-address, a number, or anything else you can think of that does not contain
-an embedded `:` (as `:` is used as the delimiter in the `FileBackingStore`
-and prohibited by the `MemoryBackingStore` for compatibility reasons).
-
-Be advised that as of 0.6.0, the FileBackingStore and the MemoryBackingStore
-silently replace "\n" with "\u{FFFD}", just as `String::from_utf8_lossy`
-does for invalid UTF-8.  This is unlikely to cause problems in production
-because users with embedded newlines in their name already can't log in
-properly.
+Users can be identified by any valid UTF-8, including a username, an email
+address, a number, or almost anything else you can think of.  However, the
+`FileBackingStore` and the `MemoryBackingStore` both silently replace "\n"
+with "\u{FFFD}", just as `String::from_utf8_lossy` does for invalid UTF-8.
+(This is unlikely to cause problems in production as users with embedded
+newlines in their name probably can't log in properly anyway.)
 
 It is expected that metadata (real names, contact information, user-based
-permissions, etc.) are managed by the consuming app.
+permissions, etc.) are managed by the application using `websession`.
 
 ## Usage
 
@@ -59,11 +53,15 @@ file permissions under Windows would be gratefully accepted.
 The default implementation uses eight (8) rounds of `bcrypt`.  You should
 run `cargo bench` to see how long it takes to run `bcrypt` on your target
 system.  If 8 rounds takes less than 0.01 seconds (10,000,000 nanoseconds)
-or more than 0.25 seconds (250,000,000, you should use implement your own
+or more than 0.25 seconds (250,000,000 ns), you should use implement your own
 `BackingStore` which uses more or fewer rounds, as needed (or, of course, a
 different encryption method).  (Each additional round doubles computation
 time, so increase the number by 2 to quadruple the time per hash or decrease
 it by 2 to quarter the time per hash.)
+
+Once you choose a number of rounds (or accept the default), you can't change
+it without either invalidating all existing passwords or devising a
+mechanism to transparently migrate users as they authenticate.
 
 ## Licensing
 
