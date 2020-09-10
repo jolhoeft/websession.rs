@@ -1,19 +1,21 @@
-extern crate websession;
-extern crate time;
+#![forbid(unsafe_code)]
 
-// This is totally out of hand.
-use websession::Authenticator;
+extern crate websession;
+
+use std::time::Duration;
 use websession::backingstore::FileBackingStore;
-use websession::sessionpolicy::SessionPolicy;
 use websession::connectionsignature::ConnectionSignature;
-use time::Duration;
+use websession::sessionpolicy::SessionPolicy;
+use websession::Authenticator;
 
 fn main() {
     let policy = SessionPolicy::new("console");
 
     let authmgr = Authenticator::new(
-	    Box::new(FileBackingStore::new("data/passwd")),
-        Duration::seconds(3600), policy);
+        Box::new(FileBackingStore::new("data/passwd")),
+        Duration::from_secs(3600),
+        policy,
+    );
 
     // These normally comes from something like a hyper header, but whatever
     let signature = ConnectionSignature::new("sekrit");

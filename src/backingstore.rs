@@ -4,12 +4,15 @@
 //! credentials.  Default implementations are provided for plain text files and
 //! in-memory storage.
 
+#![forbid(unsafe_code)]
+
 extern crate fs2;
 extern crate libc;
 extern crate pwhash;
 
 use fs2::FileExt;
 use pwhash::bcrypt;
+use std::{fs, io};
 use std::collections::HashMap;
 use std::convert::From;
 use std::fmt::Debug;
@@ -17,7 +20,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Write};
 use std::sync::Mutex;
 use std::vec::IntoIter;
-use std::{fs, io};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -39,13 +41,13 @@ pub enum BackingStoreError {
 impl PartialEq for BackingStoreError {
     fn eq(&self, other: &BackingStoreError) -> bool {
         match (self, other) {
-            (&BackingStoreError::NoSuchUser, &BackingStoreError::NoSuchUser) |
-            (&BackingStoreError::MissingData, &BackingStoreError::MissingData) |
-            (&BackingStoreError::Locked, &BackingStoreError::Locked) |
-            (&BackingStoreError::UserExists, &BackingStoreError::UserExists) |
-            (&BackingStoreError::IO(_), &BackingStoreError::IO(_)) |
-            (&BackingStoreError::Mutex, &BackingStoreError::Mutex) |
-            (&BackingStoreError::Hash(_), &BackingStoreError::Hash(_)) => true,
+            (&BackingStoreError::NoSuchUser, &BackingStoreError::NoSuchUser)
+            | (&BackingStoreError::MissingData, &BackingStoreError::MissingData)
+            | (&BackingStoreError::Locked, &BackingStoreError::Locked)
+            | (&BackingStoreError::UserExists, &BackingStoreError::UserExists)
+            | (&BackingStoreError::IO(_), &BackingStoreError::IO(_))
+            | (&BackingStoreError::Mutex, &BackingStoreError::Mutex)
+            | (&BackingStoreError::Hash(_), &BackingStoreError::Hash(_)) => true,
             _ => false,
         }
     }
@@ -140,7 +142,7 @@ pub trait BackingStore: Debug {
     /// will take care of the other.  However, there may be performance reasons
     /// to implement both.
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
-        self.users_iter().map(|v| v.map(|u| u.clone()).collect())
+        self.users_iter().map(|v| v.collect())
     }
 
     /// Return an Iterator over the user names.  `users` may be more convenient
@@ -180,13 +182,12 @@ macro_rules! fbs_options {
 }
 
 impl FileBackingStore {
-
     /// Create a new file based backing store with the given file.  The file
     /// must already exist, and is assumed to have appropriate permissions.
     pub fn new(filename: &str) -> FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
-            filename: Mutex::new(fname.clone()),
+            filename: Mutex::new(fname),
         }
     }
 
@@ -229,7 +230,7 @@ impl FileBackingStore {
     }
 
     fn hash_is_locked(hash: &str) -> bool {
-        hash.starts_with("!")
+        hash.starts_with('!')
     }
 
     // Fix usernames so that no illegal characters or strings enter the backing
@@ -301,7 +302,7 @@ impl FileBackingStore {
 
         let mut backupf = FileBackingStore::create_safe(&oldfn)?;
 
-        backupf.write(all.as_bytes())?;
+        backupf.write_all(all.as_bytes())?;
         backupf.flush()?;
         drop(backupf);
 
@@ -435,7 +436,7 @@ impl BackingStore for FileBackingStore {
         let pwfile = self.load_file()?;
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
-            if v.len() == 0 {
+            if v.is_empty() {
                 continue;
             } else {
                 users.push(v[0].to_string());
@@ -449,12 +450,11 @@ impl BackingStore for FileBackingStore {
         let fixeduser = FileBackingStore::fix_username(user);
         for line in pwfile.lines() {
             let v: Vec<&str> = line.split(':').collect();
-            if v.len() > 1 {
-                if v[0] == fixeduser {
-                    return match FileBackingStore::hash_is_locked(v[1]) {
-                        true => Err(BackingStoreError::Locked),
-                        false => Ok(true),
-                    };
+            if (v.len() > 1) && (v[0] == fixeduser) {
+                if FileBackingStore::hash_is_locked(v[1]) {
+                    return Err(BackingStoreError::Locked);
+                } else {
+                    return Ok(true);
                 }
             }
         }
@@ -470,7 +470,7 @@ struct MemoryEntry {
 
 /// In memory backing store. Does not persist across restarts. Mostly
 /// useful for testing.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MemoryBackingStore {
     users: Mutex<HashMap<String, MemoryEntry>>,
 }
@@ -537,9 +537,10 @@ impl BackingStore for MemoryBackingStore {
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError> {
         let mut hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         match hashmap.get_mut(user) {
-            Some(entry) => match entry.locked {
-                true => Err(BackingStoreError::Locked),
-                false => {
+            Some(entry) => {
+                if entry.locked {
+                    Err(BackingStoreError::Locked)
+                } else {
                     entry.credentials = enc_cred.to_string();
                     Ok(())
                 }
@@ -604,15 +605,16 @@ impl BackingStore for MemoryBackingStore {
 
     fn users(&self) -> Result<Vec<String>, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
-        Ok(hashmap.keys().map(|k| k.clone()).collect::<Vec<String>>())
+        Ok(hashmap.keys().cloned().collect::<Vec<String>>())
     }
 
     fn check_user(&self, user: &str) -> Result<bool, BackingStoreError> {
         let hashmap = self.users.lock().map_err(|_| BackingStoreError::Mutex)?;
         if let Some(u) = hashmap.get(user) {
-            match u.locked {
-                true => Err(BackingStoreError::Locked),
-                false => Ok(true),
+            if u.locked {
+                Err(BackingStoreError::Locked)
+            } else {
+                Ok(true)
             }
         } else {
             Ok(false)
@@ -628,15 +630,16 @@ impl BackingStore for MemoryBackingStore {
 #[cfg(test)]
 mod test {
     extern crate rand;
-    extern crate tempdir;
+    extern crate tempfile;
 
-    use backingstore::test::rand::Rng;
-    use backingstore::*;
+    use tempfile::TempDir;
+    use test::rand::Rng;
+    use crate::backingstore::*;
     use std::collections::HashSet;
     use std::fs::File;
 
-    fn make_filebackingstore() -> (FileBackingStore, tempdir::TempDir) {
-        let fullpath = tempdir::TempDir::new("fbs").unwrap();
+    fn make_filebackingstore() -> (FileBackingStore, TempDir) {
+        let fullpath = TempDir::new().unwrap();
         let tp = fullpath.path().join("fbs");
         let path = tp.to_str().unwrap();
         let _f = File::create(path);
@@ -774,13 +777,13 @@ mod test {
     #[test]
     fn fbs_fuzz_users() {
         let (fbs, _temp) = make_filebackingstore();
-        let names: Vec<String> = (0..20)
+        let names: Vec<String> = (0..10)
             .map(|_| (0..10).map(|_| rand::random::<char>()).collect())
             .collect();
-        let passwords: Vec<String> = (0..20)
+        let passwords: Vec<String> = (0..10)
             .map(|_| (0..10).map(|_| rand::random::<char>()).collect())
             .collect();
-        let newpasswords: Vec<String> = (0..20)
+        let newpasswords: Vec<String> = (0..10)
             .map(|_| (0..10).map(|_| rand::random::<char>()).collect())
             .collect();
 
@@ -805,9 +808,9 @@ mod test {
             Examine,
             Verify,
         }
-        impl rand::Rand for Things {
-            fn rand<R: Rng>(rng: &mut R) -> Self {
-                match rng.gen_range(0, 7) {
+        impl Things {
+            fn random() -> Self {
+                match rand::thread_rng().gen_range(0, 7) {
                     0 => Things::Add,
                     1 => Things::Lock,
                     2 => Things::Unlock,
@@ -819,21 +822,24 @@ mod test {
             }
         }
 
-        for _ in 1..25 {
+        // Even with 10 users and 10 iterations, this test can take a surprising
+        // amount of time to run.  Part of that is because our hashing algorithm
+        // is supposed to be slow.
+        // cargo test -- --nocapture
+        for _ in 1..10 {
             for (i, x) in names.iter().enumerate() {
-                match rand::random::<Things>() {
+                match Things::random() {
                     Things::Add => {
+                        println!("\tAdd {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
-                            assert_eq!(
-                                fbs.create_plain(&x, &passwords[i]),
-                                Err(BackingStoreError::UserExists)
-                            );
+                            assert_eq!(fbs.create_plain(&x, &passwords[i]), Err(BackingStoreError::UserExists));
                         } else {
                             assert_eq!(fbs.create_plain(&x, &passwords[i]), Ok(()));
                             added.insert(&x.as_str());
                         }
                     }
                     Things::Lock => {
+                        println!("\tLock {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
                             assert_eq!(fbs.lock(&x.as_str()), Ok(()));
                             locked.insert(&x.as_str());
@@ -842,6 +848,7 @@ mod test {
                         }
                     }
                     Things::Unlock => {
+                        println!("\tUnlock {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
                             assert_eq!(fbs.unlock(&x.as_str()), Ok(()));
                             locked.remove(&x.as_str());
@@ -850,27 +857,21 @@ mod test {
                         }
                     }
                     Things::Change => {
+                        println!("\tChange {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
+                            println!("\t\tlocked: {}", locked.contains(&x.as_str()));
                             if locked.contains(&x.as_str()) {
-                                assert_eq!(
-                                    fbs.update_credentials_plain(&x, &newpasswords[i]),
-                                    Err(BackingStoreError::Locked)
-                                );
+                                assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Err(BackingStoreError::Locked));
                             } else {
-                                assert_eq!(
-                                    fbs.update_credentials_plain(&x, &newpasswords[i]),
-                                    Ok(())
-                                );
+                                assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Ok(()));
                                 changed.insert(&x.as_str());
                             }
                         } else {
-                            assert_eq!(
-                                fbs.update_credentials_plain(&x, &newpasswords[i]),
-                                Err(BackingStoreError::NoSuchUser)
-                            );
+                            assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Err(BackingStoreError::NoSuchUser));
                         }
                     }
                     Things::Delete => {
+                        println!("\tDelete {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
                             assert_eq!(fbs.delete(&x.as_str()), Ok(()));
                             locked.remove(&x.as_str());
@@ -881,12 +882,11 @@ mod test {
                         }
                     }
                     Things::Examine => {
+                        println!("\tExamine {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
+                            println!("\t\tlocked: {}", locked.contains(&x.as_str()));
                             if locked.contains(&x.as_str()) {
-                                assert_eq!(
-                                    fbs.check_user(&x.as_str()),
-                                    Err(BackingStoreError::Locked)
-                                );
+                                assert_eq!(fbs.check_user(&x.as_str()), Err(BackingStoreError::Locked));
                             } else {
                                 assert_eq!(fbs.check_user(&x.as_str()), Ok(true));
                             }
@@ -895,8 +895,13 @@ mod test {
                         }
                     }
                     Things::Verify => {
+                        println!("\tExamine {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
-                            if changed.contains(&x.as_str()) {
+                            println!("\t\tchanged: {}, locked: {}", changed.contains(&x.as_str()), locked.contains(&x.as_str()));
+                            if locked.contains(&x.as_str()) {
+                                assert_eq!(fbs.verify(&x, &passwords[i]), Err(BackingStoreError::Locked));
+                                assert_eq!(fbs.verify(&x, &newpasswords[i]), Err(BackingStoreError::Locked));
+                            } else if changed.contains(&x.as_str()) {
                                 assert_eq!(fbs.verify(&x, &passwords[i]), Ok(false));
                                 assert_eq!(fbs.verify(&x, &newpasswords[i]), Ok(true));
                             } else {
@@ -904,18 +909,23 @@ mod test {
                                 assert_eq!(fbs.verify(&x, &newpasswords[i]), Ok(false));
                             }
                         } else {
-                            assert_eq!(
-                                fbs.verify(&x, &passwords[i]),
-                                Err(BackingStoreError::NoSuchUser)
-                            );
-                            assert_eq!(
-                                fbs.verify(&x, &newpasswords[i]),
-                                Err(BackingStoreError::NoSuchUser)
-                            );
+                            assert_eq!(fbs.verify(&x, &passwords[i]), Err(BackingStoreError::NoSuchUser));
+                            assert_eq!(fbs.verify(&x, &newpasswords[i]), Err(BackingStoreError::NoSuchUser));
                         }
                     }
                 }
             }
         }
+    }
+
+    // Checks a known ciphertext against a known plaintext.
+
+    #[test]
+    fn check_ciphertext() {
+        let (fbs, _temp) = make_filebackingstore();
+
+        assert!(fbs.create_preencrypted("user", "$2b$08$u5hkiF.YyDvO/rBYf/02eezYvWj/rxRGZISzqBL3KtgL.NECyTUom")
+            .is_ok());
+        assert!(fbs.verify("user", "password").is_ok());
     }
 }

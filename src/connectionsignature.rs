@@ -1,8 +1,7 @@
-#[cfg(feature = "hyper")] use hyper::server::request::Request;
-#[cfg(feature = "hyper")] use hyper::header::Cookie;
+#![forbid(unsafe_code)]
 
-use sessionpolicy::SessionPolicy;
-use token::Token;
+use crate::sessionpolicy::SessionPolicy;
+use crate::token::Token;
 use std::fmt;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -24,24 +23,12 @@ impl ConnectionSignature {
     }
 
     pub fn new_from_policy(policy: &SessionPolicy) -> ConnectionSignature {
-        ConnectionSignature { token: Token::new(&policy.salt) }
+        ConnectionSignature {
+            token: Token::new(&policy.salt),
+        }
     }
 
     pub fn get_token(&self) -> Token {
         self.token.clone()
     }
-
-    #[cfg(feature = "hyper")]
-    pub fn new_hyper(req: &Request, cookie_name: &str, key: &[u8], policy: &SessionPolicy) -> ConnectionSignature {
-        // for unsecured cookies key = [0u8; 32], i.e. 32 zero bytes
-        // Warning: this is untested
-        match req.headers.get::<Cookie>() {
-            Some(c) => match c.to_cookie_jar(key).find(cookie_name) {
-                Some(c) => ConnectionSignature::new(&c.value),
-                None => ConnectionSignature::new_from_policy(policy),
-            },
-            None => ConnectionSignature::new_from_policy(policy),
-        }
-    }
 }
-

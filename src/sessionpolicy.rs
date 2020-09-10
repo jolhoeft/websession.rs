@@ -1,4 +1,6 @@
-use connectionsignature::ConnectionSignature;
+#![forbid(unsafe_code)]
+
+use crate::connectionsignature::ConnectionSignature;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SessionPolicy {

@@ -1,14 +1,11 @@
-extern crate time;
+#![forbid(unsafe_code)]
 
-#[cfg(feature = "hyper")]
-extern crate hyper;
-
-use connectionsignature::ConnectionSignature;
-use token::Token;
-use sessionpolicy::SessionPolicy;
-use time::{Timespec, Duration};
+use crate::connectionsignature::ConnectionSignature;
+use crate::sessionpolicy::SessionPolicy;
+use crate::token::Token;
+use crate::AuthError;
 use std::collections::HashMap;
-use AuthError;
+use std::time::{Duration, Instant};
 
 // use std::net::SocketAddr;
 // use std::net::IpAddr;
@@ -16,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug)]
 struct Session {
-    last_access: Timespec,
+    last_access: Instant,
     // We're not using this right now, but will need it when we match policies
     // signature: ConnectionSignature,
 }
@@ -24,7 +21,7 @@ struct Session {
 impl Session {
     fn new(_: &ConnectionSignature) -> Session {
         Session {
-            last_access: time::now().to_timespec(),
+            last_access: Instant::now(),
             // signature: signature.clone(),
         }
     }
@@ -41,8 +38,8 @@ pub struct SessionManager {
 impl SessionManager {
     pub fn new(expiration: Duration, policy: SessionPolicy) -> SessionManager {
         SessionManager {
-            expiration: expiration,
-            policy: policy,
+            expiration,
+            policy,
             // cookie_dir: "cookies".to_string(),
             sessions: Mutex::new(HashMap::new()),
         }
@@ -50,7 +47,9 @@ impl SessionManager {
 
     // This makes sure that the connectionsignature matches our policy and also
     // matches the session it is being applied to.
+    //
     // It's a good idea, but I'm not sure where to glue it in right now.
+
     // fn valid_connection(&self, signature: &ConnectionSignature, token: &Token) -> bool {
     //     self.policy.suitable_connection(signature) && match self.sessions.get(token) {
     //         Some(sess) => sess.signature == *signature,
@@ -63,12 +62,14 @@ impl SessionManager {
         Ok(self.is_expired_locked(signature, &mut hashmap))
     }
 
-    fn is_expired_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> bool {
+    fn is_expired_locked(
+        &self,
+        signature: &ConnectionSignature,
+        hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>,
+    ) -> bool {
         let rv = match hashmap.get(signature) {
-            Some(sess) => {
-                (time::now().to_timespec() - sess.last_access) >= self.expiration
-            }
-            None => true
+            Some(sess) => sess.last_access.elapsed() >= self.expiration,
+            None => true,
         };
         if rv {
             self.stop_locked(&signature, hashmap);
@@ -77,7 +78,11 @@ impl SessionManager {
         rv
     }
 
-    fn stop_locked(&self, signature: &ConnectionSignature, hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>) -> Option<Session> {
+    fn stop_locked(
+        &self,
+        signature: &ConnectionSignature,
+        hashmap: &mut MutexGuard<HashMap<ConnectionSignature, Session>>,
+    ) -> Option<Session> {
         hashmap.remove(signature)
     }
 
@@ -89,7 +94,10 @@ impl SessionManager {
         };
     }
 
-    pub fn start(&self, mut signature: ConnectionSignature) -> Result<ConnectionSignature, AuthError> {
+    pub fn start(
+        &self,
+        mut signature: ConnectionSignature,
+    ) -> Result<ConnectionSignature, AuthError> {
         let mut hashmap = self.sessions.lock().map_err(|_| AuthError::Mutex)?;
         let need_insert = self.is_expired_locked(&signature, &mut hashmap);
 
@@ -98,16 +106,12 @@ impl SessionManager {
             hashmap.insert(signature.clone(), Session::new(&signature));
         } else {
             match hashmap.get_mut(&signature) {
-                Some(sess) => sess.last_access = time::now().to_timespec(),
+                Some(sess) => sess.last_access = Instant::now(),
                 None => return Err(AuthError::InternalConsistency), // this should be impossible
             }
         }
         Ok(signature)
     }
-
-    // TODO: Nickel does not give us direct access to a hyper response object.
-    // We need to figure out a clean way of setting the cookie, ideally w/o
-    // requiring Nickel to be compiled in.
 
     // Should this fail if the mutex blew up?
     // It's not supposed to break anyway.
@@ -118,6 +122,10 @@ impl SessionManager {
         }
     }
 }
+
+// TODO: Nickel doesn't give us direct access to a hyper response object.  We
+// need to figure out a good way to set a cookie, ideally w/o requiring Nickel
+// to be compiled in.
 
 /*
     // Session data methods
