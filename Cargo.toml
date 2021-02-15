@@ -9,7 +9,7 @@ edition = "2018"
 exclude = ["data/passwd.old"]
 
 [dependencies]
-pwhash = "^0.3"
+pwhash = "1.0"
 uuid = { version = "0.8", features = [ "v4" ] }
 libc = "0.2"
 fs2 = "0.4"

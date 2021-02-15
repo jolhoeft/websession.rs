@@ -50,25 +50,31 @@ permissions under Windows would be gratefully accepted.
 
 ### `bcrypt` Notes
 
-The default implementation uses eight (8) rounds of `bcrypt`.  You should run
+The default implementation uses ten (10) rounds of `bcrypt`.  You should run
 `cargo bench` to see how long it takes to run `bcrypt` on your target system.
-If 8 rounds takes less than 0.01 seconds (10,000,000 nanoseconds) per iteration,
-or more than 0.25 seconds (250,000,000 ns), you should use implement your own
-`BackingStore` which uses more or fewer rounds, as needed (or, of course, a
+If 10 rounds takes less than 0.01 seconds (10,000,000 nanoseconds) per
+iteration, or more than 0.25 seconds (250,000,000 ns), you should implement your
+own `BackingStore` which uses more or fewer rounds, as needed (or, of course, a
 different encryption method).  (Each additional round doubles computation time,
 so increase the number by 2 to quadruple the time per hash or decrease it by 2
 to quarter the time per hash.)
 
-Once you choose a number of rounds (or accept the default), you can't change it
-without either invalidating all existing passwords or devising a mechanism to
-transparently migrate users as they authenticate.
+After you choose a number of rounds (or accept the default), it will persist,
+even when the underlying implementation changes (as it did in `pwhash` 1.0).
+Existing passwords will continue to use the old value until they're invalidated.
+However, new passwords will use the new value.
 
 As data points, under Linux:
 
-|        CPU       | Frequency |  Mode  |   Nanoseconds per Iteration   |
-| ---------------- | --------- | ------ | ----------------------------- |
-| Core 2 Duo T9300 |  2.50 GHz | 32-bit | 20,881,257 (&plusmn; 247,164) |
-| Core i7-4770L    |  3.50 GHz | 64-bit | 13,961,105 (&plusmn; 202,267) |
+|        CPU       | Rounds | Frequency |  Mode  |   Nanoseconds per Iteration   |
+|------------------|--------|-----------|--------|-------------------------------|
+| Core 2 Duo T9300 |:   8  :|  2.50 GHz | 32-bit | 20,881,257 (&plusmn; 247,164) |
+| Core i7-4770L    |:   8  :|  3.50 GHz | 64-bit | 13,961,105 (&plusmn; 202,267) |
+| Core i7-4770L    |:  10  :|  3.50 GHz | 64-bit | 55,161,654 (&plusmn; 678,113) |
+
+So on the Core 2 Duo T9300 above, 7 rounds would be sufficient, while 8 is
+reasonable for the Core i7-4770L.  As noted above, 10 rounds takes approximately
+4 times as long as 8 rounds to complete.
 
 (Additional data points are welcomed.)
 
