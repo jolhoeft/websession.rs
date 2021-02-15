@@ -48,9 +48,10 @@ pub enum AuthError {
     Mutex,
     /// I/O error in the backing store
     IO(io::Error),
+    /// Error in the underlying `pwhash` implementation
     Hash(pwhash::error::Error),
+    /// Data integrity error (including rejections from the backing store or underlying data structures)
     MissingData,
-    InternalConsistency,
 }
 
 impl From<BackingStoreError> for AuthError {
@@ -63,6 +64,7 @@ impl From<BackingStoreError> for AuthError {
             BackingStoreError::IO(i) => AuthError::IO(i),
             BackingStoreError::Hash(h) => AuthError::Hash(h),
             BackingStoreError::MissingData => AuthError::MissingData,
+            BackingStoreError::InvalidCredentials => AuthError::MissingData,
         }
     }
 }

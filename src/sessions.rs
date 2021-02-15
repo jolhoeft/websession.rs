@@ -107,7 +107,7 @@ impl SessionManager {
         } else {
             match hashmap.get_mut(&signature) {
                 Some(sess) => sess.last_access = Instant::now(),
-                None => return Err(AuthError::InternalConsistency), // this should be impossible
+                None => return Err(AuthError::MissingData), // this should be impossible
             }
         }
         Ok(signature)

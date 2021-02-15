@@ -29,13 +29,25 @@ use std::os::windows::fs::OpenOptionsExt;
 
 #[derive(Debug)]
 pub enum BackingStoreError {
+    /// User can't be found
     NoSuchUser,
+    /// Data integrity error (for example, the user exists but the password is
+    /// missing)
     MissingData,
+    /// User exists, account is locked
     Locked,
+    /// User exists (for example, when trying to create a new user with an
+    /// existing username)
     UserExists,
+    /// Any IO error reading or writing the password database
     IO(io::Error),
+    /// Internal error; the mutex protecting a data structure has been poisoned
     Mutex,
+    /// An error from the underlying `pwhash` implementation
     Hash(pwhash::error::Error),
+    /// Credentials expected to be pre-encrypted weren't (for implementations
+    /// which can tell them apart)
+    InvalidCredentials,
 }
 
 impl PartialEq for BackingStoreError {
@@ -69,19 +81,19 @@ impl From<pwhash::error::Error> for BackingStoreError {
 /// websession is responsible for being able to change usernames w/o affecting
 /// user-IDs.
 ///
-/// N.B., implementors of BackingStore provide a `new` that gets whatever is
-/// needed to connect to the store.
+/// N.B., implementors of BackingStore should provide a `new` that gets whatever
+/// is needed to connect to the store.
 ///
 /// In general, the BackingStore will be accessed in a multi-threaded
 /// environment, so a Mutex or RwLock will probably be needed by implementers.
 pub trait BackingStore: Debug {
-    /// Encrypt unencrypted credentials.  For passwords, this would be a sound
+    /// Encrypt unencrypted credentials.  For passwords, this should be a sound
     /// hashing function.  For some credentials, such as public keys, additional
     /// encryption may be unneeded.
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError>;
 
-    /// Verify the credentials for the user.  Unencrypted passwords are
-    /// expected, such as would be provided by a user logging in.
+    /// Verify the credentials for the user.  It takes unencrypted passwords,
+    /// such as that provided by a user logging in.
     fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError>;
 
     /// Get the credentials for the user. For passwords, this would be the
@@ -92,10 +104,16 @@ pub trait BackingStore: Debug {
         fail_if_locked: bool,
     ) -> Result<String, BackingStoreError>;
 
-    /// Set new credentials for the user.  Credentials must be encrypted by
-    /// `encrypt_credentials`.  If unencrypted credentials are provided, users
-    /// will not be able to log in, and plain text will be stored in the backing
-    /// store, creating a potential security issue.
+    /// Set new credentials for the user.
+    ///
+    /// NOTE: Credentials must be previously encrypted by `encrypt_credentials`.
+    /// If unencrypted credentials are provided, users will not be able to log
+    /// in, *and* plain text will be stored in the backing store, creating a
+    /// potential security problem.
+    ///
+    /// Implementations of this method may fail with
+    /// BackingStoreError::InvalidCredentials, if they can differentiate
+    /// unencrypted and encrypted credentials, but are not required to.
     fn update_credentials(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
     /// Convenience method, calling `encrypt_credentials` and
@@ -110,8 +128,9 @@ pub trait BackingStore: Debug {
         self.update_credentials(user, &enc_cred)
     }
 
-    /// Lock the user to prevent logins.  Locked users should never verify, but
-    /// the password/credentials are not cleared and can be restored.
+    /// Lock the user to prevent logins.  Locked users cannot verify, but
+    /// the credentials are not cleared and can therefore be restored later (see
+    /// `unlock`).
     fn lock(&self, user: &str) -> Result<(), BackingStoreError>;
 
     /// Check if the user is locked.
@@ -120,12 +139,20 @@ pub trait BackingStore: Debug {
     /// Unlock the user, restoring the original password/credentials.
     fn unlock(&self, user: &str) -> Result<(), BackingStoreError>;
 
-    /// Create a new user with the given credentials.  Should return
-    /// `BackingStoreError::UserExists` if the user already exists.  See the
-    /// comment about encrypted credentials under `update_credentials`.
+    /// Create a new user with the given credentials.  Returns
+    /// `BackingStoreError::UserExists` if the user already exists.
+    ///
+    /// NOTE: Credentials must be previously encrypted by `encrypt_credentials`.
+    /// If unencrypted credentials are provided, users will not be able to log
+    /// in, *and* plain text will be stored in the backing store, creating a
+    /// potential security problem.
+    ///
+    /// Implementations of this method may fail with
+    /// BackingStoreError::InvalidCredentials, if they can differentiate
+    /// unencrypted and encrypted credentials, but are not required to.
     fn create_preencrypted(&self, user: &str, enc_cred: &str) -> Result<(), BackingStoreError>;
 
-    /// Convenience method calling `encrypt_credentials` and
+    /// Convenience method, calling `encrypt_credentials` and
     /// `create_preencrypted`.  The default implementation should normally be
     /// sufficient.
     fn create_plain(&self, user: &str, plain_cred: &str) -> Result<(), BackingStoreError> {
@@ -133,10 +160,11 @@ pub trait BackingStore: Debug {
         self.create_preencrypted(user, &enc_cred)
     }
 
-    /// Delete the user, all stored credentials, and any other data.
+    /// Delete the user, all stored credentials, and any other data.  This is
+    /// not required to be a "secure deletion".
     fn delete(&self, user: &str) -> Result<(), BackingStoreError>;
 
-    /// Return a Vec of the user names. `users_iter` may be more appropriate
+    /// Return a Vec of the user names.  `users_iter` may be more appropriate
     /// when there are large numbers of users.  Only one of `users` or
     /// `users_iter` needs to be implemented, as the default implementations
     /// will take care of the other.  However, there may be performance reasons
@@ -165,6 +193,7 @@ pub trait BackingStore: Debug {
 /// File based backing store.
 pub struct FileBackingStore {
     filename: Mutex<String>,
+    cost: u32,
 }
 
 #[cfg(unix)]
@@ -188,6 +217,17 @@ impl FileBackingStore {
         let fname = filename.to_string();
         FileBackingStore {
             filename: Mutex::new(fname),
+            cost: bcrypt::DEFAULT_COST,
+        }
+    }
+
+    /// Create a new file based backing store with the given file.  The file
+    /// must already exist, and is assumed to have appropriate permissions.
+    pub fn new_with_cost(filename: &str, cost: u32) -> FileBackingStore {
+        let fname = filename.to_string();
+        FileBackingStore {
+            filename: Mutex::new(fname),
+            cost
         }
     }
 
@@ -204,10 +244,10 @@ impl FileBackingStore {
         Ok(buf)
     }
 
-    /// Returns the password of the user in question, if they're found (and
-    /// unlocked, when `fail_if_locked` is `true`).  Returns MissingData if the
-    /// password file is missing a password, or Locked if they're found but
-    /// locked.
+    /// Returns the (encrypted) password of the user in question, if they're
+    /// found (and unlocked, when `fail_if_locked` is `true`).  Returns
+    /// MissingData if the password file is missing a password, or Locked if
+    /// they're found but locked.
     fn line_has_user(
         line: &str,
         user: &str,
@@ -365,8 +405,8 @@ impl FileBackingStore {
 
 impl BackingStore for FileBackingStore {
     fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
-        // Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(12u32), ..Default::default() }, plain)?)
-        Ok(bcrypt::hash(plain)?)
+        Ok(bcrypt::hash_with(bcrypt::BcryptSetup { cost: Some(self.cost), ..Default::default() }, plain)?)
+        //Ok(bcrypt::hash(plain)?)
     }
 
     fn get_credentials(
@@ -468,8 +508,8 @@ struct MemoryEntry {
     locked: bool,
 }
 
-/// In memory backing store. Does not persist across restarts. Mostly
-/// useful for testing.
+/// In-memory backing store.  Doesn't persist across restarts.  Mostly useful
+/// for testing.  No effort is made to clear the contents of memory safely.
 #[derive(Debug, Default)]
 pub struct MemoryBackingStore {
     users: Mutex<HashMap<String, MemoryEntry>>,
@@ -657,19 +697,13 @@ mod test {
     fn fbs_colons_in_usernames() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(
-            fbs.create_plain("now:a:valid:user", "password").is_err(),
-            false
-        );
+        assert!(fbs.create_plain("now:a:valid:user", "password").is_ok());
     }
 
     #[test]
     fn mbs_colons_in_usernames() {
         let mbs = MemoryBackingStore::new();
-        assert_eq!(
-            mbs.create_plain("now:a:good:user", "password").is_err(),
-            false
-        );
+        assert!(mbs.create_plain("now:a:good:user", "password").is_ok());
     }
 
     // Usernames and passwords with Unicode in them are okay.  There's no reason
@@ -679,23 +713,20 @@ mod test {
     fn fbs_unicrud() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(
-            fbs.create_plain("Some\u{FFFD}", "Unicode\u{2747}").is_err(),
-            false
-        );
+        assert!(fbs.create_plain("Some\u{FFFD}", "Unicode\u{2747}").is_ok());
     }
 
     #[test]
     fn fbs_create_user_plain() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
+        assert!(fbs.create_plain("user", "password").is_ok());
     }
 
     #[test]
     fn mbs_create_user_plain() {
         let mbs = MemoryBackingStore::new();
-        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
+        assert!(mbs.create_plain("user", "password").is_ok());
     }
 
     // Locked users can't authenticate.
@@ -704,40 +735,40 @@ mod test {
     fn fbs_can_locked_login() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
-        assert_eq!(fbs.lock("user").is_ok(), true);
-        assert_eq!(fbs.verify("user", "password").is_err(), true);
+        assert!(fbs.create_plain("user", "password").is_ok());
+        assert!(fbs.lock("user").is_ok());
+        assert!(fbs.verify("user", "password").is_err());
     }
 
     #[test]
     fn mbs_can_locked_login() {
         let mbs = MemoryBackingStore::new();
-        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
-        assert_eq!(mbs.verify("user", "password").is_err(), false);
-        assert_eq!(mbs.lock("user").is_ok(), true);
-        assert_eq!(mbs.verify("user", "password").is_err(), true);
+        assert!(mbs.create_plain("user", "password").is_ok());
+        assert!(mbs.verify("user", "password").is_ok());
+        assert!(mbs.lock("user").is_ok());
+        assert!(mbs.verify("user", "password").is_err());
     }
 
     #[test]
     fn fbs_check_user() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(fbs.create_plain("user", "password").is_ok(), true);
-        assert_eq!(fbs.check_user("user").is_ok(), true);
+        assert!(fbs.create_plain("user", "password").is_ok());
+        assert!(fbs.check_user("user").is_ok());
         assert_eq!(fbs.check_user("user"), Ok(true));
         assert_eq!(fbs.check_user("missing"), Ok(false));
-        assert_eq!(fbs.lock("user").is_ok(), true);
+        assert!(fbs.lock("user").is_ok());
         assert_eq!(fbs.check_user("user"), Err(BackingStoreError::Locked));
     }
 
     #[test]
     fn mbs_check_user() {
         let mbs = MemoryBackingStore::new();
-        assert_eq!(mbs.create_plain("user", "password").is_ok(), true);
-        assert_eq!(mbs.check_user("user").is_ok(), true);
+        assert!(mbs.create_plain("user", "password").is_ok());
+        assert!(mbs.check_user("user").is_ok());
         assert_eq!(mbs.check_user("user"), Ok(true));
         assert_eq!(mbs.check_user("missing"), Ok(false));
-        assert_eq!(mbs.lock("user").is_ok(), true);
+        assert!(mbs.lock("user").is_ok());
         assert_eq!(mbs.check_user("user"), Err(BackingStoreError::Locked));
     }
 
@@ -745,8 +776,8 @@ mod test {
     fn fbs_check_newline() {
         let (fbs, _temp) = make_filebackingstore();
 
-        assert_eq!(fbs.create_plain("user\nname", "password").is_ok(), true);
-        assert_eq!(fbs.check_user("user\nname").is_ok(), true);
+        assert!(fbs.create_plain("user\nname", "password").is_ok());
+        assert!(fbs.check_user("user\nname").is_ok());
         assert_eq!(fbs.check_user("user\nname"), Ok(true));
         assert_eq!(fbs.check_user("user\u{FFFD}name"), Ok(true));
     }
@@ -755,22 +786,22 @@ mod test {
     fn mbs_check_newline1() {
         let mbs = MemoryBackingStore::new();
 
-        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
+        assert!(mbs.create_plain("user\nname", "password").is_ok());
     }
 
     #[test]
     fn mbs_check_newline2() {
         let mbs = MemoryBackingStore::new();
 
-        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
-        assert_eq!(mbs.check_user("user\nname").is_ok(), true);
+        assert!(mbs.create_plain("user\nname", "password").is_ok());
+        assert!(mbs.check_user("user\nname").is_ok());
     }
 
     #[test]
     fn mbs_check_newline3() {
         let mbs = MemoryBackingStore::new();
 
-        assert_eq!(mbs.create_plain("user\nname", "password").is_ok(), true);
+        assert!(mbs.create_plain("user\nname", "password").is_ok());
         assert_eq!(mbs.check_user("user\nname"), Ok(true));
     }
 
@@ -834,14 +865,14 @@ mod test {
                         if added.contains(&x.as_str()) {
                             assert_eq!(fbs.create_plain(&x, &passwords[i]), Err(BackingStoreError::UserExists));
                         } else {
-                            assert_eq!(fbs.create_plain(&x, &passwords[i]), Ok(()));
+                            assert!(fbs.create_plain(&x, &passwords[i]).is_ok());
                             added.insert(&x.as_str());
                         }
                     }
                     Things::Lock => {
                         println!("\tLock {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
-                            assert_eq!(fbs.lock(&x.as_str()), Ok(()));
+                            assert!(fbs.lock(&x.as_str()).is_ok());
                             locked.insert(&x.as_str());
                         } else {
                             assert_eq!(fbs.lock(&x.as_str()), Err(BackingStoreError::NoSuchUser));
@@ -850,7 +881,7 @@ mod test {
                     Things::Unlock => {
                         println!("\tUnlock {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
-                            assert_eq!(fbs.unlock(&x.as_str()), Ok(()));
+                            assert!(fbs.unlock(&x.as_str()).is_ok());
                             locked.remove(&x.as_str());
                         } else {
                             assert_eq!(fbs.unlock(&x.as_str()), Err(BackingStoreError::NoSuchUser));
@@ -863,7 +894,7 @@ mod test {
                             if locked.contains(&x.as_str()) {
                                 assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Err(BackingStoreError::Locked));
                             } else {
-                                assert_eq!(fbs.update_credentials_plain(&x, &newpasswords[i]), Ok(()));
+                                assert!(fbs.update_credentials_plain(&x, &newpasswords[i]).is_ok());
                                 changed.insert(&x.as_str());
                             }
                         } else {
@@ -873,7 +904,7 @@ mod test {
                     Things::Delete => {
                         println!("\tDelete {} (already present: {})", x, added.contains(&x.as_str()));
                         if added.contains(&x.as_str()) {
-                            assert_eq!(fbs.delete(&x.as_str()), Ok(()));
+                            assert!(fbs.delete(&x.as_str()).is_ok());
                             locked.remove(&x.as_str());
                             changed.remove(&x.as_str());
                             added.remove(&x.as_str());
