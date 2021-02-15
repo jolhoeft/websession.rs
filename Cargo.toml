@@ -21,7 +21,7 @@ sha2 = "0.9"
 
 [dev-dependencies]
 tempfile = "3.1"
-rand = "0.7"
+rand = "0.8"
 bencher = "0.1"
 
 [lib]

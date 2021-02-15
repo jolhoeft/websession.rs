@@ -810,7 +810,7 @@ mod test {
         }
         impl Things {
             fn random() -> Self {
-                match rand::thread_rng().gen_range(0, 7) {
+                match rand::thread_rng().gen_range(0..7) {
                     0 => Things::Add,
                     1 => Things::Lock,
                     2 => Things::Unlock,
@@ -919,7 +919,6 @@ mod test {
     }
 
     // Checks a known ciphertext against a known plaintext.
-
     #[test]
     fn check_ciphertext() {
         let (fbs, _temp) = make_filebackingstore();
