@@ -45,9 +45,11 @@ pub enum BackingStoreError {
     Mutex,
     /// An error from the underlying `pwhash` implementation
     Hash(pwhash::error::Error),
-    /// Credentials expected to be pre-encrypted weren't (for implementations
-    /// which can tell them apart)
+    /// Credentials were expected to be pre-encrypted but weren't (for
+    /// implementations which can tell them apart)
     InvalidCredentials,
+    /// This backing store doesn't support the requested operation
+    Unsupported,
 }
 
 impl PartialEq for BackingStoreError {
@@ -959,3 +961,18 @@ mod test {
         assert!(fbs.verify("user", "password").is_ok());
     }
 }
+
+/*
+#[derive(Debug)]
+pub struct OAuthBackingStore {
+}
+
+impl BackingStore for OAuthBackingStore {
+    fn encrypt_credentials(&self, plain: &str) -> Result<String, BackingStoreError> {
+        Err(BackingStoreError::Unsupported)
+    }
+
+    fn verify(&self, user: &str, plain_cred: &str) -> Result<bool, BackingStoreError> {
+    }
+}
+*/
