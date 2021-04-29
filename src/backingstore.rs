@@ -40,7 +40,7 @@ pub enum BackingStoreError {
     /// existing username)
     UserExists,
     /// Any IO error reading or writing the password database
-    IO(io::Error),
+    Io(io::Error),
     /// Internal error; the mutex protecting a data structure has been poisoned
     Mutex,
     /// An error from the underlying `pwhash` implementation
@@ -54,22 +54,22 @@ pub enum BackingStoreError {
 
 impl PartialEq for BackingStoreError {
     fn eq(&self, other: &BackingStoreError) -> bool {
-        match (self, other) {
+        matches!((self, other),
             (&BackingStoreError::NoSuchUser, &BackingStoreError::NoSuchUser)
             | (&BackingStoreError::MissingData, &BackingStoreError::MissingData)
             | (&BackingStoreError::Locked, &BackingStoreError::Locked)
             | (&BackingStoreError::UserExists, &BackingStoreError::UserExists)
-            | (&BackingStoreError::IO(_), &BackingStoreError::IO(_))
+            | (&BackingStoreError::Io(_), &BackingStoreError::Io(_))
             | (&BackingStoreError::Mutex, &BackingStoreError::Mutex)
-            | (&BackingStoreError::Hash(_), &BackingStoreError::Hash(_)) => true,
-            _ => false,
-        }
+            | (&BackingStoreError::Hash(_), &BackingStoreError::Hash(_))
+            | (&BackingStoreError::InvalidCredentials, &BackingStoreError::InvalidCredentials)
+            | (&BackingStoreError::Unsupported, &BackingStoreError::Unsupported))
     }
 }
 
 impl From<io::Error> for BackingStoreError {
     fn from(err: io::Error) -> BackingStoreError {
-        BackingStoreError::IO(err)
+        BackingStoreError::Io(err)
     }
 }
 
@@ -293,7 +293,7 @@ impl FileBackingStore {
                 Ok(_) => true,
                 Err(ref e) if e.kind() == io::ErrorKind::NotFound => true,
                 Err(ref e) if e.kind() == io::ErrorKind::Interrupted => false,
-                Err(e) => return Err(BackingStoreError::IO(e)),
+                Err(e) => return Err(BackingStoreError::Io(e)),
             } {
                 match o.open(&filename) {
                     Ok(x) => {
@@ -302,7 +302,7 @@ impl FileBackingStore {
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(ref e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                    Err(e) => return Err(BackingStoreError::IO(e)),
+                    Err(e) => return Err(BackingStoreError::Io(e)),
                 }
             }
         }

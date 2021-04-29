@@ -47,7 +47,7 @@ pub enum AuthError {
     /// Internal error: the mutex is poisoned
     Mutex,
     /// I/O error in the backing store
-    IO(io::Error),
+    Io(io::Error),
     /// Error in the underlying `pwhash` implementation
     Hash(pwhash::error::Error),
     /// Data integrity error (including rejections from the backing store or underlying data structures)
@@ -61,10 +61,11 @@ impl From<BackingStoreError> for AuthError {
             BackingStoreError::Locked => AuthError::Unauthorized,
             BackingStoreError::UserExists => AuthError::Unauthorized,
             BackingStoreError::Mutex => AuthError::Mutex,
-            BackingStoreError::IO(i) => AuthError::IO(i),
+            BackingStoreError::Io(i) => AuthError::Io(i),
             BackingStoreError::Hash(h) => AuthError::Hash(h),
             BackingStoreError::MissingData => AuthError::MissingData,
             BackingStoreError::InvalidCredentials => AuthError::MissingData,
+            BackingStoreError::Unsupported => AuthError::Unauthorized,
         }
     }
 }
@@ -73,7 +74,7 @@ impl Error for AuthError {
     fn cause(&self) -> Option<&dyn (Error)> {
         match *self {
             AuthError::Hash(ref e) => Some(e),
-            AuthError::IO(ref e) => Some(e),
+            AuthError::Io(ref e) => Some(e),
             _ => None,
         }
     }
@@ -81,7 +82,14 @@ impl Error for AuthError {
 
 impl fmt::Display for AuthError {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        write!(out, "{}", self.to_string())
+        match self {
+            AuthError::Unauthorized => write!(out, "Unauthorized"),
+            AuthError::Mutex => write!(out, "Internal error (mutex)"),
+            AuthError::Io(i) => write!(out, "I/O error: {}", i),
+            AuthError::Hash(h) => write!(out, "Hash error: {}", h),
+            AuthError::MissingData => write!(out, "Missing data"),
+            AuthError::Expired => write!(out, "Expired"),
+        }
     }
 }
 
