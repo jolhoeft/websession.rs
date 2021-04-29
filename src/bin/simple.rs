@@ -21,10 +21,10 @@ fn main() {
     let signature = ConnectionSignature::new("sekrit");
 
     match authmgr.run(signature) {
-        Err(e) => panic!(format!("{:?}", e)),
+        Err(e) => panic!("{:?}", e),
         Ok(sig) => match authmgr.login(&String::from("user"), &String::from("password"), &sig) {
             Ok(_) => println!("Logged in with session {:?}", sig),
-            Err(err) => panic!(format!("{:?}", err)),
+            Err(err) => panic!("{:?}", err),
         },
     };
 }
