@@ -1,7 +1,9 @@
 [package]
 name = "websession"
-version = "0.12.1"
+categories = ["authentication"]
+version = "0.12.2"
 authors = ["Jeff Olhoeft <jolhoeft@gmail.com>", "Ben Stern <bas-github@bstern.org>"]
+keywords = ["login", "security", "session", "web"]
 description = "Web Session Support for Rust"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/jolhoeft/websession.rs/"
