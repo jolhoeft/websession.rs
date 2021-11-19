@@ -107,7 +107,7 @@ pub fn main() {
 
     // This is not a good salt to use in production.
     let session_salt = "sodium chloride";
-    let session_policy = SessionPolicy::new(&session_salt);
+    let session_policy = SessionPolicy::new(session_salt);
     let authenticator = Authenticator::new(
         Box::new(FileBackingStore::new("./data/passwd")),
         Duration::from_secs(3600),
@@ -118,28 +118,28 @@ pub fn main() {
         (ADDUSER, Some(idm)) => {
             let pw = get_password();
             let id = idm.value_of(ID).expect("mandatory arg");
-            match authenticator.create_plain(&id, &pw) {
+            match authenticator.create_plain(id, &pw) {
                 Ok(_) => println!("User {} created.", id),
                 Err(e) => eprintln!("Couldn't create user {}: {:?}", id, e),
             }
         }
         (DELUSER, Some(idm)) => {
             let id = idm.value_of(ID).expect("mandatory arg");
-            match authenticator.delete(&id) {
+            match authenticator.delete(id) {
                 Ok(_) => println!("User {} deleted.", id),
                 Err(e) => eprintln!("Couldn't delete user {}: {:?}", id, e),
             }
         }
         (LOCK, Some(idm)) => {
             let id = idm.value_of(ID).expect("mandatory arg");
-            match authenticator.lock_user(&id) {
+            match authenticator.lock_user(id) {
                 Ok(_) => println!("User {} locked.", id),
                 Err(e) => eprintln!("Couldn't lock user {}: {:?}", id, e),
             }
         }
         (UNLOCK, Some(idm)) => {
             let id = idm.value_of(ID).expect("mandatory arg");
-            match authenticator.unlock(&id) {
+            match authenticator.unlock(id) {
                 Ok(_) => println!("User {} unlocked.", id),
                 Err(e) => eprintln!("Couldn't unlock user {}: {:?}", id, e),
             }
@@ -147,13 +147,13 @@ pub fn main() {
         (PASSWD, Some(idm)) => {
             let pw = get_password();
             let id = idm.value_of(ID).expect("mandatory arg");
-            match authenticator.update_credentials_plain(&id, &pw) {
+            match authenticator.update_credentials_plain(id, &pw) {
                 Ok(_) => println!("Password for user {} updated.", id),
                 Err(e) => eprintln!("Couldn't update password for user {}: {:?}", id, e),
             }
         }
         (INFO, Some(idm)) => match idm.value_of(ID) {
-            Some(id) => match authenticator.is_locked(&id) {
+            Some(id) => match authenticator.is_locked(id) {
                 Ok(true) => println!("User {} IS locked.", id),
                 Ok(false) => println!("User {} is NOT locked.", id),
                 Err(e) => eprintln!("Couldn't get information for user {}: {:?}", id, e),

@@ -72,7 +72,7 @@ impl SessionManager {
             None => true,
         };
         if rv {
-            self.stop_locked(&signature, hashmap);
+            self.stop_locked(signature, hashmap);
         }
         debug!("is_expired about to return {}", rv);
         rv
